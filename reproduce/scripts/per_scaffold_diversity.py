@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
-"""per_scaffold_diversity.py - Appendix C (Tables divers30/divers50) を再現する。
+"""per_scaffold_diversity.py - reproduce Appendix C (Tables 8/9).
 
-各 scaffold の XVR-positive 集合 (kekulized かつ xTB 収束かつ topology 保存、
-unique canonical SMILES) について、以下を計算する:
+For each scaffold's XVR-positive set (kekulized, xTB-converged, topology
+preserved; unique canonical SMILES) it computes:
+  - XVR-pos.        : number of distinct XVR-positive molecules
+  - BM unique / BM% : distinct Bemis-Murcko core scaffolds and their fraction
+  - Tanimoto median : median pairwise Tanimoto of Morgan fingerprints
+                      (radius 2, 2048 bits) over 2000 random pairs, SEED=42
+  - MW (Da)         : mean +/- std of Descriptors.MolWt
+  - logP            : mean +/- std of Crippen MolLogP
 
-  - XVR-pos.        : distinct kekulized XVR-positive 分子数
-  - BM unique / BM% : 異なる Bemis-Murcko core scaffold 数とその割合
-  - Tanimoto med.   : Morgan FP (radius 2, 2048 bit) の pairwise Tanimoto の
-                      中央値。2000 random pairs、SEED=42 で決定論的。
-  - MW (Da)         : Descriptors.MolWt の mean +/- std (population std)
-  - logP            : Crippen MolLogP の mean +/- std
+Input:  Drugs/data/freeorder_v26/v26{s,g}_scaffolds_n10k/<scaffold>/xtb_results.json
+Output: per-scaffold tables for the 30-atom (Table 8) and 50-atom (Table 9) models.
+Usage:  ADT_ROOT=/path/to/ADT python3 per_scaffold_diversity.py
 
-入力: Drugs/data/freeorder_v26/v26{s,g}_scaffolds_n10k/<scaffold>/xtb_results.json
-出力: 30-atom (divers30) と 50-atom (divers50) の per-scaffold 表。
-
-使い方:
-  ADT_ROOT=/path/to/ADT python3 per_scaffold_diversity.py
-
-注: Tanimoto median は 2000 random pairs の標本中央値で +/-0.003 程度の標本揺らぎを
-持つため、再現性のため SEED=42 を固定している。論文 Table 8/9 はこの SEED=42 出力。
-BM scaffold の canonical 化は RDKit バージョンに僅かに依存する (cyclohexane で
-+/-1 程度)。本スクリプト確認時の RDKit は 2025.09.x。
+The Tanimoto median is a 2000-random-pair sample statistic (about +/-0.003
+noise), so SEED=42 is fixed for reproducibility; the paper's Tables 8/9 are this
+seeded output. Bemis-Murcko canonicalisation depends slightly on the RDKit
+version (verified with RDKit 2025.09.x).
 """
 import os, json, statistics, random
 from rdkit import Chem
@@ -40,7 +37,7 @@ N_PAIRS = 2000
 
 
 def xvr_unique_mols(xtb_results_path):
-    """XVR-positive (ok & same_topo & kekulized) の unique SMILES -> RDKit Mol list。"""
+    """Unique RDKit Mols of the XVR-positive (ok & same_topo & kekulized) SMILES."""
     d = json.load(open(xtb_results_path))
     uniq = list(dict.fromkeys(
         r["smi"] for r in d

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""analyze_structfidelity.py - 再生成した構造忠実度データから §4.5 中央値 +
-Fig 5 の TikZ 座標を出力する。structfidelity/{qm9,drugs30,drugs50} を読む。
+"""analyze_structfidelity.py - reproduce the Fig. 6 / Section 4.5 numbers.
 
-process_scaffold_dir (bond_angle_errors.py) を再利用 = フィルタ ok&same、
-pre/post xyz から bond/angle 誤差を計算。
+Reads the regenerated structural-fidelity coordinates under
+structfidelity/{qm9,drugs30,drugs50}/ and prints, per dataset, the median
+|dr| (bond-length error) and |dtheta| (bond-angle error) plus the TikZ
+histogram coordinates used in Fig. 6. Reuses process_scaffold_dir from
+bond_angle_errors.py (filter: ok & same; per-bond / per-angle errors computed
+from the pre/post xyz).
+
+Usage:  ADT_ROOT=/path/to/ADT python3 analyze_structfidelity.py
 """
 import os, sys, statistics
 import numpy as np

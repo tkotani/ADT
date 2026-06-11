@@ -1,17 +1,13 @@
 #!/usr/bin/env python3
-"""per_scaffold_novelty.py — Appendix B (Table perscaf30/50) の Novel / Novel% 列を再現する。
+"""per_scaffold_novelty.py - reproduce the novelty columns of Appendix B (Tables 6/7).
 
-per_scaffold_stats.py は Kekulized / Unique / 統計量(Mean/Std/...)を出すが novelty は出さない。
-本スクリプトは各 scaffold の kekulized mol_stable SMILES を、対応する訓練セット
-(drugs_mols_v26_max30/50.pkl)と照合し、novel(訓練に無い canonical SMILES)を数える。
+per_scaffold_stats.py reports kekulized / unique / heavy-atom statistics but not
+novelty. This script compares each scaffold's kekulized, mol_stable SMILES
+against the corresponding training set (drugs_mols_v26_max30/50.pkl) and counts
+the novel (not present in training) canonical, non-isomeric SMILES.
 
-照合キー: canonical, non-isomeric SMILES(paper と同じ)。
-
-使い方:
-  ADT_ROOT=/path/to/ADT python3 per_scaffold_novelty.py
-  (ADT_ROOT 省略時は scripts/ の 2 つ上 = repo root を自動推定)
-
-出力: 30-atom / 50-atom 各 7 scaffold の uniq / novel / novel% 表。
+Usage:  ADT_ROOT=/path/to/ADT python3 per_scaffold_novelty.py
+Output: per-scaffold uniq / novel / novel% for the 30- and 50-atom models.
 """
 import os
 import pickle
@@ -29,14 +25,14 @@ SCAFFOLDS = ["benzene", "pyridine", "pyrimidine", "pyrazine",
 
 
 def canon(smi):
-    """canonical, non-isomeric SMILES（照合キー）。"""
+    """Canonical, non-isomeric SMILES (the match key)."""
     m = Chem.MolFromSmiles(smi)
     return Chem.MolToSmiles(m, isomericSmiles=False) if m else None
 
 
 def load_train_smiles(pkl_path):
-    """訓練 pkl から canonical non-isomeric SMILES 集合を作る。
-    pkl は (rdkit_mol, positions, smiles) のリスト。"""
+    """Build the set of canonical, non-isomeric SMILES from the training pkl
+    (a list of (rdkit_mol, positions, smiles) tuples)."""
     with open(pkl_path, "rb") as f:
         data = pickle.load(f)
     out = set()

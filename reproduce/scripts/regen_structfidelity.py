@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
-"""regen_structfidelity.py - §4.5/Fig 5 構造忠実度の pre/post 座標を再生成する。
+"""regen_structfidelity.py - regenerate the pre/post-xTB coordinates for Fig. 6.
 
-元の eval では xtb_work/*.xtbopt.xyz が各 scaffold 先頭 ~18 分子しか保存されず、
-論文 §4.5 (1279/642 mol) を厳密再現できなかった。本スクリプトは保存済み pre 構造
-(mol_stable_kekulized.sdf) の XVR-positive (ok & same) 全分子に対し xTB --opt を
-再実行し、bond_angle_errors.py が読む xtb_work/{mol_N.xyz, mol_N.xtbopt.xyz} を
-完全再生成する。gen_eval_lib.xtb_relax を再利用 = 元パイプラインと同一手順。
+The original evaluation retained xtb_work/*.xtbopt.xyz for only ~18 molecules
+per scaffold, so the Fig. 6 / Section 4.5 numbers could not be recomputed
+exactly. This script re-runs xTB --opt on every XVR-positive (ok & same)
+molecule of the saved pre-structures (mol_stable_kekulized.sdf) and writes the
+xtb_work/{mol_N.xyz, mol_N.xtbopt.xyz} files that analyze_structfidelity.py and
+bond_angle_errors.py read. It reuses gen_eval_lib.xtb_relax -- the exact same
+relaxation procedure as the original pipeline.
 
-出力: Drugs/data/freeorder_v26/structfidelity/{qm9,drugs30,drugs50}/<scaffold>/
-        xtb_work/  + xtb_results.json (コピー)
-resumable: 既存 *.xtbopt.xyz はスキップ。
+Output: Drugs/data/freeorder_v26/structfidelity/{qm9,drugs30,drugs50}/<scaffold>/
+        xtb_work/ + xtb_results.json (copied). Resumable: existing *.xtbopt.xyz
+        are skipped.
+Usage:  ADT_ROOT=/path/to/ADT python3 regen_structfidelity.py [--procs N]
 """
 import os, sys, json, shutil, tempfile, argparse
 from multiprocessing import Pool
