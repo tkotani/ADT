@@ -1,4 +1,5 @@
 # Data hub (managed externally; populate via tools/setup_data.sh)
+PTBANK
 PTBANK/
 
 # Python cache
@@ -17,3 +18,10 @@ __pycache__/
 
 # Structural-fidelity regenerated coords (archived in PTBANK)
 **/structfidelity/
+
+# Data payloads — recreated by tools/setup_data.sh from PTBANK/Zenodo
+QM9/data/
+Drugs/data/
+
+# Training-log symlinks — recreated by setup_data.sh
+reproduce/logs/*.log

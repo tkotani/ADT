@@ -32,4 +32,4 @@ for SCAF in "${SCAFFOLDS[@]}"; do
   python3 gen_eval_v26.py \
   > "$OUTDIR/${SCAF}.log" 2>&1
 done
-echo "Done. Aggregate via ADTpaper1/scripts/per_scaffold_stats.py"
+echo "Done. Aggregate via reproduce/scripts/per_scaffold_stats.py"
