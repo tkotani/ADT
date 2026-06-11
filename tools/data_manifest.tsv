@@ -1,4 +1,5 @@
 #repo_path	ptbank_name	size_MB	md5	note
+# Data archive: Zenodo DOI 10.5281/zenodo.20635986  (https://zenodo.org/records/20635986) — download each ptbank_name into $ADT_ROOT/PTBANK/
 QM9/data/freeorder/checkpoints_v26_scratch/best.pt	qm9_v26_E562.pt	981	17ec74f188b0dd4c216ed05dab9c85a2	paper QM9 ckpt (E562, val=2.7496, max_offset=32)
 QM9/data/freeorder/frame_cache_200bin.pt	qm9_frame_cache_log200.pt	76	-	log-spaced 200 bins (frame_cache名 _200bin だが log)
 QM9/data/freeorder/qm9_mols_cache_v3b_noh.pkl	qm9_mols_cache_v3b_noh.pkl	56	-	QM9 134k molecules cache (training + novelty)

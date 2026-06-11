@@ -49,7 +49,7 @@ ADT/                         (~23 MB code + browser; tracked in git)
 ## Data — checkpoints & caches (Zenodo)
 
 Code lives in this repository; the large binaries live on **Zenodo**
-(DOI: *to be added*) and are linked into the tree by `tools/setup_data.sh`.
+(DOI: [10.5281/zenodo.20635986](https://doi.org/10.5281/zenodo.20635986)) and are linked into the tree by `tools/setup_data.sh`.
 The three model checkpoints are:
 
 | Checkpoint | Paper result | Notes |
@@ -68,7 +68,7 @@ cd ADT
 export ADT_ROOT=$PWD
 
 mkdir -p $ADT_ROOT/PTBANK
-# download the Zenodo files into $ADT_ROOT/PTBANK/
+# download the data files from https://doi.org/10.5281/zenodo.20635986 into $ADT_ROOT/PTBANK/
 
 tools/setup_data.sh            # create symlinks data/ -> PTBANK/
 tools/setup_data.sh --verify   # md5-check every linked file
