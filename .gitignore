@@ -1,0 +1,19 @@
+# Data hub (managed externally; populate via tools/setup_data.sh)
+PTBANK/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Eval outputs (regenerable)
+**/eval_*_N*/
+**/xtb_work/
+
+# OS
+.DS_Store
+
+# Drugs generation results (archived in PTBANK/drugs_scaffolds_n10k.tgz)
+**/v26?_scaffolds_n10k/
+
+# Structural-fidelity regenerated coords (archived in PTBANK)
+**/structfidelity/
