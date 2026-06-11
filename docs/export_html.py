@@ -255,11 +255,37 @@ var STYLE = {{
     sphere: {{scale: 0.25, colorscheme: "Jmol"}}
 }};
 
+function webglOK() {{
+    try {{
+        var c = document.createElement("canvas");
+        return !!(window.WebGLRenderingContext &&
+            (c.getContext("webgl") || c.getContext("experimental-webgl")));
+    }} catch (e) {{ return false; }}
+}}
+
+function showNoWebGL() {{
+    document.getElementById("viewer").innerHTML =
+        '<div style="max-width:640px;margin:50px auto;padding:24px;line-height:1.7;' +
+        'background:#1a1a2e;border:1px solid #555;border-radius:8px;color:#e0e0e0;font-size:14px;">' +
+        '<div style="color:#ff8866;font-size:18px;font-weight:bold;margin-bottom:10px;">' +
+        '3D view unavailable &mdash; WebGL is off</div>' +
+        'This page renders molecules with WebGL, but your browser could not create a WebGL ' +
+        'context. This is common in <b>Chrome on a machine without a GPU</b>, where software ' +
+        'WebGL is disabled by default. To fix it:' +
+        '<ul style="margin:10px 0 10px 22px;">' +
+        '<li>Open this page in <b>Firefox</b> (software WebGL works out of the box), or</li>' +
+        '<li>In Chrome, set <code style="background:#0f0f23;padding:1px 5px;border-radius:3px;">' +
+        'chrome://flags/#enable-unsafe-swiftshader</code> to <b>Enabled</b> and relaunch.</li>' +
+        '</ul>The molecule data is fully loaded; only the rendering needs WebGL.</div>';
+}}
+
 function initViewer() {{
+    if (!webglOK()) {{ showNoWebGL(); return; }}
     var el = document.getElementById("viewer");
-    viewer = $3Dmol.createViewer(el, {{
-        backgroundColor: "#1a1a2e"
-    }});
+    try {{
+        viewer = $3Dmol.createViewer(el, {{ backgroundColor: "#1a1a2e" }});
+    }} catch (e) {{ showNoWebGL(); return; }}
+    if (!viewer) {{ showNoWebGL(); return; }}
     requestAnimationFrame(function() {{
         viewer.resize();
         showMol(0);

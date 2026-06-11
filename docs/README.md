@@ -20,6 +20,10 @@ Each `*.html` is **fully self-contained** (3Dmol.js and all coordinates are
 inlined). You can also just download a single file and open it offline — no
 server, no network.
 
+## Browser requirements
+
+The 3D view uses **WebGL**. On most machines it just works. On a machine **without a GPU**, Chrome disables software WebGL by default and the molecule area shows an on-page notice instead of the structure; either open the page in **Firefox** (software WebGL works out of the box) or set `chrome://flags/#enable-unsafe-swiftshader` to *Enabled* in Chrome and relaunch. The page detects this automatically and shows the same instructions inline.
+
 ## Viewing locally
 
 Open any file directly in a browser:
