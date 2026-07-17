@@ -56,8 +56,6 @@ class QM9TokenDataset(Dataset):
             self.tokens = [self.tokens[i] for i in keep]
             self.smiles = [self.smiles[i] for i in keep]
 
-        self.max_pointer = 30
-
     def __len__(self):
         return len(self.tokens)
 

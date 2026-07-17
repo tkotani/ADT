@@ -1,27 +1,49 @@
-# Data hub (managed externally; populate via tools/setup_data.sh)
-PTBANK
-PTBANK/
-
-# Python cache
+# ADT code repo (kt1) — track SOURCE only. Exclude ckpt actuals, frame caches, data, outputs.
+# --- large binaries: ckpts + frame caches + arrays ---
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.npy
+*.npz
+*.pkl
+# --- generated molecules / structures / outputs ---
+*.sdf
+*.xyz
+*.mol
+*.smi
+# --- old manual backups (moved to .trash; never track) ---
+*.bak*
+# --- big result dumps under paper_release (keep code/ + *.md only) ---
+paper_release/funnel_pretrained/
+paper_release/funnel_rlvr/
+paper_release/**/xtb_results.json
+# --- dirs ---
+data/
+logs/
 __pycache__/
+.trash/
+# --- latex build artifacts (keep .tex/.md source) ---
+*.pdf
+*.aux
+*.bbl
+*.blg
+*.synctex.gz
+*.fdb_latexmk
+*.fls
+*.toc
+# --- misc ---
 *.pyc
+*.pyo
+*.log
+*.out
 
-# Eval outputs (regenerable)
-**/eval_*_N*/
-**/xtb_work/
+# --- GitHub Pages payload (served from main/docs): must stay tracked ---
+!docs/
+!docs/data/
+!docs/data/*.sdf
 
-# OS
-.DS_Store
-
-# Drugs generation results (archived in PTBANK/drugs_scaffolds_n10k.tgz)
-**/v26?_scaffolds_n10k/
-
-# Structural-fidelity regenerated coords (archived in PTBANK)
-**/structfidelity/
-
-# Data payloads — recreated by tools/setup_data.sh from PTBANK/Zenodo
-QM9/data/
-Drugs/data/
-
-# Training-log symlinks — recreated by setup_data.sh
-reproduce/logs/*.log
+# --- dataset loader lives with the data dir but IS source: keep it tracked ---
+!Drugs/data/
+!Drugs/data/geom/
+!Drugs/data/geom/load_drugs.py

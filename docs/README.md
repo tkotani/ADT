@@ -46,13 +46,16 @@ into the output (otherwise it falls back to a CDN `<script>` tag and needs a
 network connection).
 
 The source molecules are the first 50 of each scaffold's
-`mol_stable_kekulized.sdf` (the XVR-positive, kekulized set) from the evaluation
-output. The 50-molecule SDFs used here are kept in `data/` for offline
-reproducibility; to rebuild them from the full evaluation output:
+`mol_stable_kekulized.sdf` (the XTP-positive, kekulized set) from a generation
+run. The 50-molecule SDFs behind the bundled pages are kept in `data/` for
+offline reproducibility, so none of the steps below are needed to view or serve
+the site. To rebuild them, point `SRC` at a directory that holds one
+subdirectory per scaffold, each containing that scaffold's
+`mol_stable_kekulized.sdf`:
 
 ```bash
 # from ADT_ROOT (the repo root)
-SRC=Drugs/data/freeorder_v26/v26s_scaffolds_n10k
+SRC=<generation output directory>
 for s in benzene pyridine pyrimidine pyrazine furan thiophene cyclohexane; do
   awk 'BEGIN{n=0} {print} /\$\$\$\$/ {n++; if(n>=50) exit}' \
     "$SRC/$s/mol_stable_kekulized.sdf" > docs/data/${s}_50.sdf

@@ -6,7 +6,7 @@ Provides:
   - xtb_relax(idx, sdf_str, xtb_workdir, xtb_bin): run xTB GFN2 on one mol
   - consistency_check(pre_inchi, pre_topo, mol_post): compare pre/post SMILES
 """
-import os, json, subprocess
+import os, json, subprocess, glob
 import numpy as np
 import re
 from rdkit import Chem
@@ -72,8 +72,22 @@ def parse_xtbopt_xyz(opt_xyz_path):
         return None, None
 
 
+HARTREE2KCAL = 627.5094740631
+
+
+def _xtb_energy_kcal(opt_xyz_path):
+    """Parse the converged total energy (Hartree) from an xtbopt.xyz comment line -> kcal/mol (or None)."""
+    try:
+        with open(opt_xyz_path) as f:
+            comment = f.readlines()[1]
+        m = re.search(r'energy:\s*(-?[\d.]+)', comment)
+        return float(m.group(1)) * HARTREE2KCAL if m else None
+    except Exception:
+        return None
+
+
 def xtb_relax(idx, mol_block, init_heavy_coords, xtb_workdir, xtb_bin, charge=0, timeout=300):
-    """Run xTB GFN2 optimization. Returns dict with ok, e_gain, rmsd, rmsd_heavy.
+    """Run xTB GFN2 optimization. Returns dict with ok, e_gain, e_full(kcal/mol), rmsd, rmsd_heavy.
     init_heavy_coords: list of [x,y,z] for heavy atoms (for RMSD against optimized)."""
     mol = Chem.MolFromMolBlock(mol_block, sanitize=False)
     if mol is None:
@@ -115,12 +129,92 @@ def xtb_relax(idx, mol_block, init_heavy_coords, xtb_workdir, xtb_bin, charge=0,
             rmsd_heavy = float(np.sqrt(np.mean(np.sum(diff**2, axis=1))))
 
         return {
-            'ok': True, 'e_gain': e_gain, 'rmsd': rmsd_all, 'rmsd_heavy': rmsd_heavy,
+            'ok': True, 'e_gain': e_gain, 'e_full': _xtb_energy_kcal(opt_xyz),
+            'rmsd': rmsd_all, 'rmsd_heavy': rmsd_heavy,
             'opt_xyz': opt_xyz, 'opt_heavy_coords': opt_heavy_coords,
             'opt_heavy_anums': opt_heavy_anums,
         }
     except Exception as ex:
         return {'ok': False, 'reason': str(ex)[:80]}
+
+
+def xtb_hrelax(idx, mol_block, n_heavy, xtb_workdir, xtb_bin, charge=0, timeout=300):
+    """H-only xTB GFN2 optimization: freeze heavy atoms (1..n_heavy) via '$fix atoms:', relax only H.
+    Returns (all-atom molblock with H-relaxed coords, E_hprerelax in kcal/mol); (None, None) on failure.
+    Purpose: remove crude-H-placement contamination from the estrain reward so the subsequent full
+    relaxation's energy gain reflects the HEAVY geometry alone (H already at its optimum)."""
+    mol = Chem.MolFromMolBlock(mol_block, sanitize=False)
+    if mol is None:
+        if os.environ.get("HPRE_DEBUG"):
+            with open(os.path.join(xtb_workdir, "hpre_why.log"), "a") as _f:
+                _f.write(f"idx={idx} PARSE_FAIL n_heavy={n_heavy} mb_head={mol_block.splitlines()[3][:60] if len(mol_block.splitlines())>3 else '?'}\n")
+        return None, None
+    try:
+        Chem.SanitizeMol(mol)
+    except Exception:
+        pass
+    n_all = mol.GetNumAtoms()
+    if n_all <= n_heavy:                                             # no H present -> nothing to relax
+        return mol_block, None
+    conf = mol.GetConformer()
+    xyz_path = os.path.join(xtb_workdir, f'hpre_{idx}.xyz')
+    with open(xyz_path, 'w') as f:
+        f.write(f'{n_all}\n\n')
+        for a in mol.GetAtoms():
+            p = conf.GetAtomPosition(a.GetIdx())
+            f.write(f'{a.GetSymbol()} {p.x:.6f} {p.y:.6f} {p.z:.6f}\n')
+    ctrl_path = os.path.join(xtb_workdir, f'hpre_{idx}.inp')
+    with open(ctrl_path, 'w') as f:                                  # freeze heavy (1..n_heavy), relax only H.
+        f.write(f'$fix\n   atoms: 1-{n_heavy}\n$end\n$opt\n   engine=lbfgs\n   maxcycle=500\n$end\n')  # lbfgs REQUIRED: default rf/ANCOPT ignores $fix (internal coords). maxcycle: big molecules need more.
+    ns = f'hpre_{idx}'
+    for _pat in (f'{ns}.xtb*', f'{ns}.NOT_CONVERGED', f'{ns}.charges', f'{ns}.wbo'):
+        for _stale in glob.glob(os.path.join(xtb_workdir, _pat)):     # purge xTB OUTPUTS only (NOT the .xyz
+            try:                                                      # input we just wrote): the workdir is
+                os.remove(_stale)                                     # reused and ns = hpre_<idx-in-batch>,
+            except OSError:                                           # so a run that writes nothing would
+                pass                                                  # otherwise inherit the PREVIOUS
+                                                                      # molecule's geometry files.
+    try:
+        _r = subprocess.run(
+            [xtb_bin, os.path.abspath(xyz_path), '--opt', '--input', os.path.abspath(ctrl_path),
+             '--charge', str(charge), '--namespace', ns],
+            capture_output=True, text=True, timeout=timeout, cwd=xtb_workdir)
+        _dbg = os.environ.get("HPRE_DEBUG")
+        opt_xyz = os.path.join(xtb_workdir, f'{ns}.xtbopt.xyz')
+        if not os.path.exists(opt_xyz):
+            # NOT_CONVERGED: xTB writes no xtbopt.xyz but DOES leave the last geometry. Dropping the
+            # molecule here was counting a PRE-PROCESSING non-convergence as a chemistry failure -- and it
+            # hits big molecules hardest (~30% at 38+ heavy atoms), i.e. it manufactured a large part of the
+            # "size cliff". The H-only relax just needs H off their placement artefacts (heavy is frozen),
+            # so the last LBFGS geometry is fine; the FULL relax that follows still decides XTP.
+            last_xyz = os.path.join(xtb_workdir, f'{ns}.xtblast.xyz')
+            if not os.path.exists(last_xyz):
+                if _dbg:
+                    with open(os.path.join(xtb_workdir, "hpre_fail.log"), "a") as _f:
+                        _f.write(f"=== {ns} n_all={n_all} n_heavy={n_heavy} rc={_r.returncode}\n"
+                                 f"--- stdout tail:\n" + "\n".join(_r.stdout.splitlines()[-12:]) + "\n"
+                                 f"--- stderr tail:\n" + "\n".join(_r.stderr.splitlines()[-6:]) + "\n")
+                return None, None
+            opt_xyz = last_xyz
+            if os.environ.get("HPRE_DEBUG"):
+                with open(os.path.join(xtb_workdir, "hpre_why.log"), "a") as _f:
+                    _f.write(f"idx={idx} USED_XTBLAST (not converged) n_all={n_all}\n")
+        with open(opt_xyz) as f:
+            lines = f.read().splitlines()
+        if int(lines[0].split()[0]) != n_all:
+            if os.environ.get("HPRE_DEBUG"):
+                with open(os.path.join(xtb_workdir, "hpre_why.log"), "a") as _f:
+                    _f.write(f"idx={idx} NATOM_MISMATCH xyz={lines[0].split()[0]} expected={n_all}\n")
+            return None, None
+        for i in range(n_all):                                       # write H-relaxed coords back (same order)
+            parts = lines[2 + i].split()
+            conf.SetAtomPosition(i, [float(parts[1]), float(parts[2]), float(parts[3])])
+        return Chem.MolToMolBlock(mol), _xtb_energy_kcal(opt_xyz)
+    except Exception as _e:
+        if os.environ.get("HPRE_DEBUG"):
+            with open(os.path.join(xtb_workdir, "hpre_exc.log"), "a") as _f:
+                _f.write(f"{ns} n_all={n_all} n_heavy={n_heavy} EXC={type(_e).__name__}: {str(_e)[:120]}\n")
+        return None, None
 
 
 def consistency_check(inchi_pre, topo_pre, opt_heavy_anums, opt_heavy_coords, validate_3D_fn):
