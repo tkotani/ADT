@@ -22,7 +22,7 @@ relaxed coordinates by a distance rule — no SMILES, no valence table.
   <https://tkotani.github.io/ADT/>
 - **Checkpoints & frame caches (Zenodo):** <https://doi.org/10.5281/zenodo.20635985>
 - **How to reproduce the paper:** [`REPRODUCE.md`](REPRODUCE.md)
-- **Paper:** arXiv (ID *to be added on posting*)
+- **Paper:** arXiv:2607.15918 — <https://arxiv.org/abs/2607.15918>
 
 ---
 
@@ -79,7 +79,17 @@ teaching, personal) does not.
 The bundled `docs/3Dmol-min.js` is 3Dmol.js under BSD-3-Clause, a separate
 license ([`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
 
-**Citation.** A BibTeX entry will be added once the arXiv ID is assigned. If you
-use this work, please cite the paper *"Atomic Design Transformer:
-Scaffold-Conditioned 3D Molecule Generation via xTB-Reward Reinforcement
-Learning"* (T. Kotani) and this repository.
+**Citation.** If you use this work, please cite the paper *"Atomic Design
+Transformer: Scaffold-Conditioned 3D Molecule Generation via xTB-Reward
+Reinforcement Learning"* (T. Kotani, arXiv:2607.15918) and this repository:
+
+```bibtex
+@article{kotani2026adt,
+  title         = {Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation via xTB-Reward Reinforcement Learning},
+  author        = {Kotani, Takao},
+  year          = {2026},
+  eprint        = {2607.15918},
+  archivePrefix = {arXiv},
+  url           = {https://arxiv.org/abs/2607.15918}
+}
+```
