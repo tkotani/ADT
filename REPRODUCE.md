@@ -125,9 +125,12 @@ python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi   # Table 2, 
 python3 common/geom_matched_diversity.py geom_drugs.smi benzene=<N^gen> pyridine=<N^gen> ...
 ```
 
-`paper_tables.py` prints every column of Table 2 (funnel, size, RMSD, strain) and the model
-side of Table 3 (N_eff^scaf, distinct Murcko scaffolds, IntDiv_1, MW, logP, QED), the
-per-heavy-atom strain percentiles, and the Fig. 6 bond/angle-shift histograms.
+`paper_tables.py` prints every generation number of the paper with one set of definitions
+(documented at the top of the script): Table 2, the model side of Table 3, Table 4 (unconditional
+generation), the Fig. 6 histograms, the charge-separation shares and the aggregates quoted in the
+text; `--json` writes them all to a file. N_XTP^smiles counts molecules RDKit reads back as the
+declared molecule (same heavy-atom bonds), N^gen deduplicates non-isomeric SMILES, and novelty
+compares normalized SMILES (largest fragment, neutralized, non-isomeric) on both sides.
 
 A regeneration of the benzene row with `rlvr_E240direct.pt` (N = 10,000, RTX 5090, 16 xTB
 workers, 55 min) gave N_XTP 9805 / N^gen 9582 (95.8%) / median ΔE 10.1 kcal/mol against the
