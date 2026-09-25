@@ -36,7 +36,7 @@ tar xzf frame_caches.tar.gz -C ~/assets/frames   # -> frame_cache_*.pt
 | Zenodo file | size | md5 (head) | used by |
 |---|---|---|---|
 | `epoch_240.pt` | 343 MB | `a793a6cad4b7` | pretrained generator (E240) — start of Stage 2 |
-| `paper_rlvl.ckpt` | 343 MB | `3b16c61034c3` | RLVR generator — the paper's results; start of Stage 3 |
+| `rlvr_E240direct.pt` | 347 MB | `522f724d9436` | RLVR generator — the paper's results; start of Stage 3 |
 | `completer_best.pt` | 104 MB | `33e56a7ef9e5` | MLnH: hydrogen count (perception-free, no RDKit) |
 | `mlhadd_v6prod_best.pt` | 107 MB | `765517732e31` | MLHplacer: hydrogen directions |
 | `ikt_torsion_bend.pt` | 349 MB | `b86cbc74e0ef` | IKT corrector (§4.5, Fig. 7) |
@@ -76,7 +76,7 @@ are the training scripts, but **their training data is not part of this release*
 so the two models cannot be retrained from what is published here. Use
 `completer_best.pt` and `mlhadd_v6prod_best.pt` from Zenodo.
 
-## Stage 2 — data-free RLVR → `paper_rlvl.ckpt`   *(skip if you downloaded it)*
+## Stage 2 — data-free RLVR → `rlvr_E240direct.pt`   *(skip if you downloaded it)*
 
 ```bash
 INIT_CKPT=~/assets/epoch_240.pt \
@@ -85,15 +85,19 @@ OUT_DIR=/out/rlvr bash run_rlvr_baseline.sh
 ```
 
 No molecular data enters this loop: the only supervision is the GFN2-xTB reward.
-The batch XTP rate climbs from ~50% to ~98% over ~9,500 steps (Fig. 8b). The
-run keeps `best.pt` at the running-max batch XTP; that is what `paper_rlvl.ckpt`
-is. Cost is set by xTB on the CPU, not by the GPU: three GFN2 relaxations per
-generated molecule.
+The batch XTP rate climbs from ~51% to ~98% by step ~10,000 (Fig. 8b).
+`rlvr_E240direct.pt` is the **final** checkpoint of this run, `ckpt_step9999.pt`
+(optimizer state stripped), not `best.pt`. The script sets the XTP reward protocol
+(ML hydrogens, H-prerelax, clamp/unclamp, no partial credit) explicitly, because the
+code defaults differ. Cost is set by xTB on the CPU, not by the GPU: three GFN2
+relaxations per generated molecule, ~20 s per step, ~2.3 days for 10,000 steps on
+one RTX 4090 with 16 CPU cores. RL sampling and parallel xTB are not bit-reproducible;
+expect the same curve and statistically equivalent tables, not identical weights.
 
 ## Stage 3 — generation → molrecord banks
 
 ```bash
-GEN_CKPT=~/assets/paper_rlvl.ckpt FRAME_DIR=~/assets/frames OUT=/out/bank N=10000 \
+GEN_CKPT=~/assets/rlvr_E240direct.pt FRAME_DIR=~/assets/frames OUT=/out/bank N=10000 \
   bash Drugs/vtakao202606231610/run_gen_records.sh    # 7 scaffolds x 10,000 (+ triple)
 ```
 
@@ -110,7 +114,7 @@ python3 common/funnel_stats.py /out/bank      # funnel + strain -> Table 2, Tabl
 
 ```bash
 python3 Drugs/vtakao202606231610/ikt_eval_big.py \
-  --ckpt ~/assets/paper_rlvl.ckpt --ikt ~/assets/ikt_torsion_bend.pt \
+  --ckpt ~/assets/rlvr_E240direct.pt --ikt ~/assets/ikt_torsion_bend.pt \
   --out persize_ikt.json
 python3 Drugs/vtakao202606231610/plot_ikt_xtp_size.py \
   --recs persize_ikt.json --out ikt_xtp_size.pdf

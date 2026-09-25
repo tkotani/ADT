@@ -10,8 +10,9 @@
 #  moment controller keeping the heavy-atom count at 25 +/- 5.45; the element
 #  composition is matched to GEOM-Drugs by a ONE-SIDED comp-PID (base 2.0,
 #  setpoint kappa=0.03, cap x1.5); a scaffold-diversity floor holds diversity
-#  at 0.96.  Reaches batch XTP (Xema) ~0.985 (XTP ~98.5%); best.pt is auto-saved
-#  at the running-max Xema.
+#  at 0.96.  Batch XTP climbs from ~51% to ~98% by step ~10,000 (Fig. 8b).
+#  The paper model (rlvr_E240direct.pt on Zenodo) is the FINAL checkpoint of this
+#  run, ckpt_step9999.pt -- not best.pt (the running-max-Xema checkpoint).
 #
 #  Paths are taken from the environment (edit or export before running):
 #     INIT_CKPT      pretrained generator to start from (Stage 1 / E240)
@@ -21,7 +22,7 @@
 #     MLHADD_CKPT    ML H-placer model (perception-free H)       [reward pipeline]
 #     XTB_BIN        GFN2-xTB binary            (default: ~/xtb/bin/xtb)
 #     PY             python with torch+rdkit    (default: python3)
-#     N_STEPS        training steps             (default: 6000; plateau ~ here)
+#     N_STEPS        training steps             (default: 10000 -> ckpt_step9999.pt)
 #
 #  The XTP reward is PERCEPTION-FREE (no RDKit): H atoms are placed by the two
 #  learned models COMPLETER_CKPT (n_H) + MLHADD_CKPT (H directions), then GFN2-xTB
@@ -37,8 +38,16 @@ export COMPLETER_CKPT="${COMPLETER_CKPT:?set COMPLETER_CKPT = MLnH completer bes
 export MLHADD_CKPT="${MLHADD_CKPT:?set MLHADD_CKPT = ML H-placer (mlhadd v6prod) best.pt}"
 export XVR_PFREE="${XVR_PFREE:-1}"     # 1 = perception-free reward (paper default)
 export XTB_BIN="${XTB_BIN:-$HOME/xtb/bin/xtb}"
+# --- XTP reward protocol, exactly as run for the paper model (rlvr_E240direct.pt) ---
+# The code defaults differ (H_PLACER=rdkit, CLASHVR=1, no clamp, FAIL_CREDIT=0.6), so set them here.
+export H_PLACER="${H_PLACER:-mlhadd}" CLASHVR="${CLASHVR:-0}" AROMATIZE_RINGS="${AROMATIZE_RINGS:-1}"
+export H_PRERELAX="${H_PRERELAX:-1}" XVR_ESTRAIN_TAU="${XVR_ESTRAIN_TAU:-2.0}" XVR_ESTRAIN_MEASURE="${XVR_ESTRAIN_MEASURE:-1}"
+export XVR_CLAMP="${XVR_CLAMP:-1}" XVR_CLAMP_ONLY="${XVR_CLAMP_ONLY:-1}" XVR_CLAMP_IDEAL="${XVR_CLAMP_IDEAL:-1}"
+export XVR_FAIL_CREDIT="${XVR_FAIL_CREDIT:-0}" XVR_STRAIN_HPRE="${XVR_STRAIN_HPRE:-1}"
+export MLNH_PARITY="${MLNH_PARITY:-1}" H_INTEGRITY="${H_INTEGRITY:-1}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}" PYTHONUNBUFFERED=1
 PY="${PY:-python3}"
-N_STEPS="${N_STEPS:-6000}"
+N_STEPS="${N_STEPS:-10000}"
 
 mkdir -p "$OUT_DIR"
 cd "$(dirname "$0")"          # run from the code directory (rl_train_klrl_step1.py alongside)
@@ -63,4 +72,4 @@ cd "$(dirname "$0")"          # run from the code directory (rl_train_klrl_step1
   --scaffold_floor --target_scaffdiv 0.96 --scaff_kp 3 --scaff_ki 0.3 --scaff_window 300 \
   2>&1 | tee -a "$OUT_DIR/train.log"
 
-echo "[done] RLVR finished. Best checkpoint (max Xema): $OUT_DIR/best.pt"
+echo "[done] RLVR finished. Paper-equivalent checkpoint (final step): $OUT_DIR/ckpt_step$((N_STEPS-1)).pt"

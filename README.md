@@ -14,7 +14,7 @@ stop.
 The model is then improved **without any molecular data**: reinforcement learning
 against a verifiable physical reward (**XTP** — a GFN2-xTB relaxation must
 preserve the heavy-atom topology the model declared) lifts the end-to-end yield of
-distinct valid molecules from 42.2% to 96.7%. The reward is *perception-free*: the
+distinct valid molecules from 42.2% to 96.4%. The reward is *perception-free*: the
 hydrogens are placed by two learned models, and the topology is read from the
 relaxed coordinates by a distance rule — no SMILES, no valence table.
 
@@ -41,7 +41,7 @@ export COMPLETER_CKPT=~/assets/completer_best.pt    # MLnH        (hydrogen coun
 export MLHADD_CKPT=~/assets/mlhadd_v6prod_best.pt   # MLHplacer   (hydrogen directions)
 
 # generate 10,000 molecules per scaffold, then tabulate the funnel
-GEN_CKPT=~/assets/paper_rlvl.ckpt FRAME_DIR=~/assets/frames OUT=/out/bank N=10000 \
+GEN_CKPT=~/assets/rlvr_E240direct.pt FRAME_DIR=~/assets/frames OUT=/out/bank N=10000 \
   bash Drugs/vtakao202606231610/run_gen_records.sh
 python3 common/funnel_stats.py /out/bank
 ```
