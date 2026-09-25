@@ -31,7 +31,7 @@ relaxed coordinates by a distance rule — no SMILES, no valence table.
 ```bash
 git clone https://github.com/tkotani/ADT.git && cd ADT
 
-pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy zenodo_get
+pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy matplotlib zenodo_get
 mkdir -p ~/assets && cd ~/assets && zenodo_get 10.5281/zenodo.20635985
 mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames
 cd -
