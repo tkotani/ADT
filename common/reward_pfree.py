@@ -1,13 +1,13 @@
-"""Perception-free XVR reward (RDKit valence/kekulize/AddHs 排除).
+"""Perception-free XVR reward (RDKit valence/kekulize/AddHs excluded).
 
 Drop-in for reward_xtb.xvr_reward_batch when XVR_PFREE=1:
   generate heavy (atoms,bonds,na)
-    -> screen ② disconnection (ADT bond graph 連結成分==1)
+    -> screen ② disconnection (ADT bond graph connected components==1)
     -> screen ① clash (check_collisions)
     -> completer n_H (COMPLETER_CKPT, MAIN-thread pre-pass=GPU)
     -> VSEPR H placement -> all-atom molblock (RDKit=graph container only)
-    -> xtb_relax (再利用: e_gain/opt_heavy 実績あり) -> 距離topology保存
-    -> reward: R_FAIL / R_XTB / estrain-shaped R_XVR (strain_pa=|e_gain|/n_heavy, 現行と同一)
+    -> xtb_relax (reused: e_gain/opt_heavy proven) -> distance topology preserved
+    -> reward: R_FAIL / R_XTB / estrain-shaped R_XVR (strain_pa=|e_gain|/n_heavy, same as current)
 
 Completer runs in the MAIN thread (GPU); xTB in the thread pool (subprocess).
 """
@@ -27,10 +27,10 @@ from collision_check import check_collisions
 from gen_eval_lib import xtb_relax, xtb_hrelax
 
 ALLOWED_ATOMS = {1, 5, 6, 7, 8, 9, 14, 15, 16, 17, 33, 35, 53}
-R_FAIL, R_CLASH, R_XTB, R_XVR = 0.0, 0.3, 0.6, 1.0     # clashVR: clash-pass(構造valid)に0.3 credit
+R_FAIL, R_CLASH, R_XTB, R_XVR = 0.0, 0.3, 0.6, 1.0     # clashVR: 0.3 credit for clash-pass (structurally valid)
 CLASHVR = os.environ.get("CLASHVR", "1") == "1"        # clashVR tier on/off (default on)
-H_PLACER = os.environ.get("H_PLACER", "rdkit")         # rdkit(completer n_H駆動 AddHs) / vsepr
-CLASHVR_SWITCH = float(os.environ.get("CLASHVR_SWITCH", "0.90"))  # clash-pass EMA閾値→pure XVRへ切替
+H_PLACER = os.environ.get("H_PLACER", "rdkit")         # rdkit (AddHs driven by completer n_H) / vsepr
+CLASHVR_SWITCH = float(os.environ.get("CLASHVR_SWITCH", "0.90"))  # clash-pass EMA threshold -> switch to pure XVR
 _clash_ema = None                                      # rolling clash-pass rate
 _switched = False                                      # True after auto-switch to pure XVR
 XVR_ESTRAIN_TAU = float(os.environ.get("XVR_ESTRAIN_TAU", "0") or 0)
@@ -38,78 +38,78 @@ H_PRERELAX = os.environ.get("H_PRERELAX") == "1"       # insert H-only xTB prere
 BL = {6: 1.09, 7: 1.01, 8: 0.96, 16: 1.34, 15: 1.42, 9: 0.92, 17: 1.27, 35: 1.41, 53: 1.61}
 COV = {1: 0.31, 6: 0.76, 7: 0.71, 8: 0.66, 9: 0.57, 15: 1.07, 16: 1.05, 17: 1.02, 35: 1.20, 53: 1.39}
 _PT = Chem.GetPeriodicTable()
-MLNH_PARITY = os.environ.get("MLNH_PARITY", "1") == "1"   # 修正MLnH: fix completer n_H parity so neutral molecule is closed-shell (even electrons). default ON
+MLNH_PARITY = os.environ.get("MLNH_PARITY", "1") == "1"   # corrected MLnH: fix completer n_H parity so neutral molecule is closed-shell (even electrons). default ON
 STD_VAL = {5: 3, 6: 4, 7: 3, 8: 2, 9: 1, 14: 4, 15: 3, 16: 2, 17: 1, 33: 3, 35: 1, 53: 1}
 _PARITY_STATS = {"n": 0, "odd": 0, "remove": 0, "add": 0, "fail": 0}
 H_INTEGRITY = os.environ.get("H_INTEGRITY", "1") == "1"   # handle a molecule whose H-prerelaxed structure has a detached/stray H (fragmentation). default ON
 H_INTEGRITY_MODE = os.environ.get("H_INTEGRITY_MODE", "correct")  # "correct" = strip the detached(excess) H + re-prerelax, recover if intact; "reject" = drop
 _H_STRAY_A = float(os.environ.get("H_STRAY_A", "1.6"))    # an H farther than this from every heavy atom = detached
-# ストッパー: H prerelax へ戻れる回数の上限（初回 + 最大 MAX_RETRY 回のやり直し）。上限に達したら F1b として記録・reject。
+# Stopper: max number of returns to H prerelax (first try + up to MAX_RETRY retries). When reached, record as F1b and reject.
 H_INTEGRITY_MAX_RETRY = int(os.environ.get("H_INTEGRITY_MAX_RETRY", "3"))
 _INTEGRITY_STATS = {"n": 0, "correct": 0, "reject": 0, "n_full": 0, "correct_full": 0, "reject_full": 0,
-                    "F1a_odd_parity": 0, "F1b_retry_exhausted": 0}   # F1a: 奇数個除去が必要 / F1b: retry 上限超過
-# MLnH(+MLHplacer) 性能: 何個(偶数)・何回 弾いてから成功したか の分布。strip も parity 補正も無し = H数を一発で当てた。
+                    "F1a_odd_parity": 0, "F1b_retry_exhausted": 0}   # F1a: odd number of removals needed / F1b: retry limit exceeded
+# MLnH(+MLHplacer) performance: distribution of how many H (even) were rejected, and in how many rounds, before success. No strip and no parity fix = H count right on the first try.
 _MLNH_PERF = {"ok_first": 0, "parity_only": 0, "strip_hist": {}, "attempt_hist": {}, "at_prerelax": 0, "at_full": 0,
-              "odd_extra_removed": 0}   # xTB が奇数個(1H)弾いた -> もう1個除去して偶数に揃えた回数
-# _prep で screen 落ちした理由の内訳（崖では screened が最大の失敗群。どの screen が効いているかを知る）
+              "odd_extra_removed": 0}   # xTB rejected an odd number (1H) -> number of times one more H was removed to make it even
+# Breakdown of why molecules were screened out in _prep (at the cliff, screened is the largest failure group; tells which screen is active)
 _SCREEN_STATS = {"atom": 0, "disconnect": 0, "clash": 0, "completer": 0, "placer": 0}
 # --- realizable-XTP via clamp->unclamp (2026-07-10): when free relax FLIPS heavy topology, try to RESCUE it
 # by constraining the generated heavy bonds (clamp) -> relax -> release (unclamp) -> relax; realizable if the
 # unclamp result still preserves the generated topology (= a stable topo-preserving minimum EXISTS = honest XTP).
-# --- 積算誤差を「生成側」で減らすための報酬項（2026-07-10, IKT とは直交） ---
-# λ1: 自己整合ペナルティ = |bonds0 △ _heavy_conn(生成座標)| / |bonds0|
-#     「ADT が宣言したグラフを、ADT 自身の3D座標が実現できているか」。xtb 不要なので
-#     **xtb 非収束(=積算誤差 最大)の分子にも勾配が届く**のが肝（現行は reward 0 で情報ゼロ）。
+# --- Reward terms to reduce accumulated error on the generator side (2026-07-10, orthogonal to IKT) ---
+# λ1: self-consistency penalty = |bonds0 △ _heavy_conn(generated coords)| / |bonds0|
+#     "Do ADT's own 3D coordinates realize the graph ADT declared?" No xtb needed, so
+#     **gradient reaches even xtb-nonconverged molecules (= largest accumulated error)**; that is the key (currently reward 0, zero information).
 XVR_SELFMIS_LAM = float(os.environ.get("XVR_SELFMIS_LAM", "0") or 0)
-# λ2: 緩和変位 RMSD(gen_heavy -> 緩和後 heavy) のペナルティ = 積算誤差の直接量（実測 median ~0.9Å）
+# λ2: penalty on relaxation displacement RMSD (gen_heavy -> relaxed heavy) = direct measure of accumulated error (measured median ~0.9Å)
 XVR_RMSD_LAM = float(os.environ.get("XVR_RMSD_LAM", "0") or 0)
-# λ_c: **clash の段階罰**。崖では screened の 100% が clash で、全分子の ~30% を占める最大の失敗群。
-#      現在は screen して reward 0（勾配ゼロ）。めり込み深さ Σ(thr - d)/na に比例した負の報酬を与える。
-#      xtb 不要。selfmis の「偽接触」と同じ現象の重篤版なので、積算誤差を最も直接的に押し下げる。
+# λ_c: **graded clash penalty**. At the cliff, 100% of screened are clashes, the largest failure group (~30% of all molecules).
+#      Currently screened with reward 0 (zero gradient). Give a negative reward proportional to penetration depth Σ(thr - d)/na.
+#      No xtb needed. A severe form of the same phenomenon as selfmis "spurious contacts", so it pushes accumulated error down most directly.
 XVR_CLASH_LAM = float(os.environ.get("XVR_CLASH_LAM", "0") or 0)
 XVR_CLAMP = os.environ.get("XVR_CLAMP") == "1"          # env-gate; default OFF (proven free-relax). ON for the step2b kt1 run.
 XVR_CLAMP_FC = os.environ.get("XVR_CLAMP_FC", "0.5")    # $constrain force constant
-# `distance: i,j,auto` は「その時点の距離」を固定する。積算誤差で bonds0 の結合が結合閾値を超えて
-# 伸びていると、auto は**壊れた結合を壊れたまま固定**し、解放しても形成されない -> F3_unclamp_flip と誤判定。
-# XVR_CLAMP_IDEAL=1 なら、伸びた結合(d > 1.3*(cov_i+cov_j)) だけ **結合距離 cov_i+cov_j を明示して引き寄せる**。
+# `distance: i,j,auto` fixes the "current distance". If accumulated error has stretched a bonds0 bond beyond the bonding threshold,
+# auto **freezes the broken bond as broken**, and it does not form on release -> misjudged as F3_unclamp_flip.
+# With XVR_CLAMP_IDEAL=1, only stretched bonds (d > 1.3*(cov_i+cov_j)) are **pulled in by explicitly setting the bond length cov_i+cov_j**.
 XVR_CLAMP_IDEAL = os.environ.get("XVR_CLAMP_IDEAL") == "1"
-# --- 2026-07-10: XTP の底上げ 3点セット（いずれも既定 off = 従来挙動）--------------------
-# ① CLAMP_ONLY: free relax を廃し、全分子を H-prerelax -> clamp(bonds0) -> unclamp で判定する。
-#    従来は free relax が収束した分子しか clamp を試されず、最も clamp が効くはずの
-#    relax_fail (full relax 非収束 = 積算誤差最大) に clamp が一度も届いていなかった。
+# --- 2026-07-10: 3-part set to raise XTP (all default off = previous behavior) --------------------
+# ① CLAMP_ONLY: drop free relax; judge every molecule by H-prerelax -> clamp(bonds0) -> unclamp.
+#    Previously only molecules whose free relax converged were tried with clamp, so clamp never reached
+#    relax_fail (full relax nonconverged = largest accumulated error), where clamp should help most.
 XVR_CLAMP_ONLY = os.environ.get("XVR_CLAMP_ONLY") == "1"
-# ② STRAIN_HPRE: strain_pa の基準点を全分子 H-prerelax 構造に統一する。
-#    従来 clamp 救済分子は「clamp 後の極小からの利得」で測られ、歪みが過小評価 -> 報酬が過大だった。
+# ② STRAIN_HPRE: unify the strain_pa reference point to the H-prerelax structure for all molecules.
+#    Previously clamp-rescued molecules were measured by "gain from the post-clamp minimum", underestimating strain -> overestimated reward.
 XVR_STRAIN_HPRE = os.environ.get("XVR_STRAIN_HPRE") == "1"
-#    ※ 和集合(free で通れば合格 / 落ちたら clamp)は棄却した: 分子ごとに手順が変わる採点は
-#      測定としても報酬としても不健全。全分子を必ず同一手順に通す。
-# ①'' CLAMP_FADE: 拘束を一気に切らず、力の定数を段階的に 0 へ落とす連続変形 (homotopy)。
-#    目標距離 d0 は最初に一度だけ決めて固定し、k のみ下げる: E_k = E_xtb + k*Σ(d-d0)^2, k -> 0。
-#    最終段は k=0 = ただの free relax なので、合格証明は「拘束なし xTB 極小が bonds0 を保つ」のまま。
-#    狙い: 急な解放で起きる F3_unclamp_flip (B の最大失敗, 25-33/192) の削減。
-#    最終段が free relax なので A(free) が通す分子も原理的に通り、和集合 C が不要 = 全分子 単一手順。
-XVR_CLAMP_FADE = os.environ.get("XVR_CLAMP_FADE", "")   # 例 "1.0,0.3,0.1,0.03"（空なら従来の一段 clamp）
-# ①''' CLAMP_LOOSE: clamp(拘束)段を --opt loose で粗く収束させ速度を稼ぐ。最終 unclamp は full --opt のまま
-#    ＝合格判定(bonds0を保つ拘束なし極小)の厳密さは不変。clamp 段の役割は「bonds0 のベイスンに入れる」
-#    だけで最終精密化は unclamp が担うので、粗くても品質はほぼ落ちない想定。速度検証用（default off）。
+#    Note: the union (pass if free passes / else clamp) was rejected: scoring whose procedure varies per molecule is
+#      unsound both as a measurement and as a reward. Every molecule always goes through the same procedure.
+# ①'' CLAMP_FADE: instead of cutting restraints at once, lower the force constant stepwise to 0 (continuous deformation, homotopy).
+#    Target distance d0 is set once at the start and kept fixed; only k is lowered: E_k = E_xtb + k*Σ(d-d0)^2, k -> 0.
+#    The last stage is k=0 = plain free relax, so the pass certificate stays "the unrestrained xTB minimum keeps bonds0".
+#    Aim: reduce F3_unclamp_flip caused by abrupt release (largest failure of B, 25-33/192).
+#    Since the last stage is free relax, molecules passed by A(free) also pass in principle; union C is unnecessary = single procedure for all molecules.
+XVR_CLAMP_FADE = os.environ.get("XVR_CLAMP_FADE", "")   # e.g. "1.0,0.3,0.1,0.03" (empty = previous single-stage clamp)
+# ①''' CLAMP_LOOSE: converge the clamp (restrained) stage coarsely with --opt loose for speed. Final unclamp stays full --opt
+#    = the strictness of the pass criterion (unrestrained minimum keeping bonds0) is unchanged. The clamp stage only has to "enter the bonds0 basin";
+#    final refinement is done by unclamp, so quality is expected to barely drop even if coarse. For speed testing (default off).
 XVR_CLAMP_LOOSE = os.environ.get("XVR_CLAMP_LOOSE") == "1"
-# ③ FAIL_CREDIT: 「xtb は収束したが bonds0 を実現できない」分子への credit（旧 R_XTB=0.6 の役割①）。
-#    成功報酬は R_XTB + (R_XVR-R_XTB)exp(-strain/tau) で strain 大なら 0.6 に漸近するため、
-#    0.6 の credit があると崖(strain 大)で XTP の勾配が消える。0 にすると常に 0.6 のギャップが立つ。
-#    失敗側の密な勾配は selfmis/clash 減点が担う（xtb 不要・screened にも届く）。
+# ③ FAIL_CREDIT: credit for molecules where "xtb converged but bonds0 is not realized" (role ① of the old R_XTB=0.6).
+#    Success reward is R_XTB + (R_XVR-R_XTB)exp(-strain/tau), approaching 0.6 for large strain, so
+#    a 0.6 failure credit kills the XTP gradient at the cliff (large strain). With 0, a 0.6 gap always stands.
+#    Dense gradient on the failure side comes from the selfmis/clash penalties (no xtb needed, also reach screened).
 XVR_FAIL_CREDIT = float(os.environ.get("XVR_FAIL_CREDIT", "0.6"))
-# ④ RMSD_RHO: 幾何の積算誤差 (ADT の生成重原子座標 -> 最終緩和後) を報酬に入れる。
-#    エネルギーは軟モード(ねじれ)に盲目 = 大きく動いてもほぼ無コスト。RMSD はそこを直接見る。
-#    ★減算ではなく shaping の因子にする: FAIL_CREDIT=0 で作った「成功と失敗の 0.6 のギャップ」を
-#      成功側からの減算で潰さないため。reward は必ず [R_XTB, R_XVR] に留まる。
+# ④ RMSD_RHO: put geometric accumulated error (ADT generated heavy coords -> final relaxed) into the reward.
+#    Energy is blind to soft modes (torsions) = large motions cost almost nothing. RMSD looks at that directly.
+#    ★Use it as a shaping factor, not a subtraction: so the "0.6 gap between success and failure" created by FAIL_CREDIT=0
+#      is not collapsed by subtracting from the success side. reward always stays within [R_XTB, R_XVR].
 #      success = R_XTB + (R_XVR-R_XTB)*exp(-strain/tau)*exp(-rmsd/rho)
-XVR_RMSD_RHO = float(os.environ.get("XVR_RMSD_RHO", "0") or 0)   # 0 = off。推奨 0.3-0.5 (A)
-PFREE_DUMP = os.environ.get("PFREE_DUMP")                # set -> 生成分子 (Z, coords, bonds, na) を append pickle
+XVR_RMSD_RHO = float(os.environ.get("XVR_RMSD_RHO", "0") or 0)   # 0 = off. Recommended 0.3-0.5 (A)
+PFREE_DUMP = os.environ.get("PFREE_DUMP")                # set -> append-pickle generated molecules (Z, coords, bonds, na)
 HARTREE2KCAL = 627.5094740631
 
 
 def _kabsch_rmsd(P, Q):
-    """並進・回転を除いた heavy RMSD。xtb は重心/慣性主軸を動かすので生の座標差は使えない。"""
+    """Heavy-atom RMSD after removing translation/rotation. xtb moves the center of mass/principal axes, so raw coordinate differences cannot be used."""
     P = np.asarray(P, float); Q = np.asarray(Q, float)
     if P.shape != Q.shape or len(P) == 0:
         return None
@@ -122,7 +122,7 @@ def _kabsch_rmsd(P, Q):
 
 
 def _cu_energy_kcal(path):
-    """xtbopt.xyz のコメント行から絶対全エネルギー(Hartree) -> kcal/mol。拘束バイアスを含まない生の GFN2 値。"""
+    """Absolute total energy (Hartree) from the comment line of xtbopt.xyz -> kcal/mol. Raw GFN2 value without restraint bias."""
     try:
         with open(path) as f:
             comment = f.readlines()[1]
@@ -135,7 +135,7 @@ _CLAMP_STATS = {"tried": 0, "rescued": 0}
 
 def _bank_struct():
     """Dynamic gate (read per call, no import-order dependency): freeze full HADD + relaxed
-    all-atom structures into the reward dict so a molecule bank can store 生/HADD/緩和.
+    all-atom structures into the reward dict so a molecule bank can store raw/HADD/relaxed.
 
     DEFAULT ON (2026-07-13): a record without the relaxed structure cannot yield a SMILES, and without a
     SMILES there is no diversity, no novelty and no rdkit_valid -- i.e. the record is unusable for the
@@ -249,11 +249,11 @@ def _h_intact(mb):
 
 
 def _strip_detached_h(mb):
-    """離脱した(xTB に弾かれた余剰) H を molblock から除去 -> (corrected_molblock, n_removed)。
-    弾かれた数が **奇数** の場合は電子パリティが崩れてラジカルになるため、**最も緩く付いている H
-    (最近接 heavy 原子から最も遠い H) を 1 個追加で除去して偶数に揃える**（2026-07-10, ユーザ指示）。
-    追加除去できる H が残っていない場合のみ (None,0) を返し、caller は F1a として reject する。
-    heavy 原子は不変なので `na` は変わらない（= bonds0 は保たれる）。"""
+    """Remove detached (excess, rejected by xTB) H from the molblock -> (corrected_molblock, n_removed).
+    If the number rejected is **odd**, the electron parity breaks and gives a radical, so **additionally remove the one most loosely bound H
+    (the H farthest from its nearest heavy atom) to make it even** (2026-07-10, per user instruction).
+    Returns (None,0) only if no H is left for the extra removal; the caller then rejects as F1a.
+    Heavy atoms are unchanged, so `na` does not change (= bonds0 is preserved)."""
     try:
         m = Chem.MolFromMolBlock(mb, sanitize=False, removeHs=False)
         if m is None or m.GetNumConformers() == 0:
@@ -268,13 +268,13 @@ def _strip_detached_h(mb):
                if np.linalg.norm(hp - P[i], axis=1).min() > _H_STRAY_A]
         if not rem:
             return mb, 0
-        if len(rem) % 2 != 0:            # 奇数個の離脱 -> もう1個除去して偶数に揃える(閉殻を保つ)
+        if len(rem) % 2 != 0:            # odd number detached -> remove one more to make it even (keep closed shell)
             _rs = set(rem)
             cand = [(float(np.linalg.norm(hp - P[i], axis=1).min()), int(i))
                     for i in np.where(Z == 1)[0] if int(i) not in _rs]
             if not cand:
-                return None, 0           # 追加除去できる H が無い -> F1a reject
-            cand.sort(reverse=True)      # 最近接 heavy から最も遠い H = 最も緩く付いている = 余剰の可能性が高い
+                return None, 0           # no H available for extra removal -> F1a reject
+            cand.sort(reverse=True)      # H farthest from nearest heavy = most loosely bound = most likely excess
             rem.append(cand[0][1])
             _MLNH_PERF["odd_extra_removed"] += 1
         ed = Chem.RWMol(m)
@@ -311,14 +311,14 @@ def _zc_to_mb(Z, P):
 
 
 def _strip_detached_zc(Z, P):
-    """離脱(余剰) H を Z/coords 構造から除去 -> (bondless molblock, n_removed)。
-    奇数個なら **最も緩く付いている H を 1 個追加除去して偶数に揃える**（閉殻を保つ）。
-    除去対象が無い / 追加除去できる H が無い場合のみ (None,0)。"""
+    """Remove detached (excess) H from the Z/coords structure -> (bondless molblock, n_removed).
+    If odd, **additionally remove the one most loosely bound H to make it even** (keep closed shell).
+    Returns (None,0) only if there is nothing to remove / no H available for the extra removal."""
     Z = np.asarray(Z); P = np.asarray(P, dtype=np.float64)
     _, det = _intact_zc(Z, P)
     if not det:
         return None, 0
-    if len(det) % 2 != 0:                # 奇数個の離脱 -> もう1個除去して偶数に
+    if len(det) % 2 != 0:                # odd number detached -> remove one more to make it even
         heavy = np.where(Z > 1)[0]
         if len(heavy) == 0:
             return None, 0
@@ -326,7 +326,7 @@ def _strip_detached_zc(Z, P):
         cand = [(float(np.linalg.norm(hp - P[i], axis=1).min()), int(i))
                 for i in np.where(Z == 1)[0] if int(i) not in _ds]
         if not cand:
-            return None, 0               # 追加除去できる H が無い -> F1a reject
+            return None, 0               # no H available for extra removal -> F1a reject
         cand.sort(reverse=True)
         det = list(det) + [cand[0][1]]
         _MLNH_PERF["odd_extra_removed"] += 1
@@ -374,7 +374,7 @@ def _completer_nH(anums, coords, bonds):
 
 
 def _parity_correct_nH(anums, bonds, nH):
-    """修正MLnH parity fix. A neutral closed-shell molecule needs an even electron count
+    """Corrected MLnH parity fix. A neutral closed-shell molecule needs an even electron count
     (sum Z_all = sum Z_heavy + sum nH). If odd, the completer mis-counted H parity ->
     forced radical (RDKit rejects it; xTB still relaxes it). Adjust ONE atom's H by +-1
     to restore even parity, preferring REMOVAL (the completer over-counts in ~98% of errors:
@@ -431,21 +431,21 @@ def _prep(atoms, bonds, na):
         if a != b and 0 <= a < na and 0 <= b < na:
             bonds0.add((min(a, b), max(a, b)))
     bonds0 = list(bonds0)
-    # === 案B (2026-07-10): トポロジーは ADT が宣言した結合グラフ `bonds0` を尊重する ===
-    # 旧 `ref = _heavy_conn(生成座標)` は距離ベースなので、積算誤差で接近した 1-3(geminal) 原子等を
-    # 「結合」と誤認する(偽結合)。その結果 (a) 緩和が偽接触を解消すると「flip=失敗」と誤判定され XTP を
-    # 過小評価し、(b) clamp がその偽結合を距離拘束して あり得ない幾何 を強制するため rescue が働かなかった。
-    # bonds0 基準なら H付与→H緩和→全体緩和 は全て幾何操作でトポロジーを変えない(一気通貫)ので、
-    # 「トポロジーが変わった」失敗は消え、「bonds0 を保ったまま安定に緩和できなかった」失敗だけが残る。
-    ref = set(bonds0)                                              # XTP 判定・clamp 拘束の基準 = ADT の結合グラフ
-    ref_dist = _heavy_conn(anums, coords, na)                      # 生成座標の距離トポロジー（旧定義の ref でもある）
-    # 自己整合ミス: ADT の宣言グラフ(bonds0) と 生成幾何の距離トポロジー の対称差。
-    # >0 なら「宣言したグラフを自分の3D座標が実現できていない」= 積算誤差の直接の症状
-    # （伸びて切れた結合 = bonds0\ref_dist / 圧縮角などによる偽接触 = ref_dist\bonds0）。xtb 不要。
-    selfmis_miss = len(ref - ref_dist)    # bonds0 にあるが生成幾何では結合していない = 伸びて切れた結合
-    selfmis_spur = len(ref_dist - ref)    # 生成幾何で結合と誤認される近接 = 偽接触(1-3 圧縮角など)
+    # === Plan B (2026-07-10): topology respects the bond graph `bonds0` declared by ADT ===
+    # The old `ref = _heavy_conn(generated coords)` is distance-based, so 1-3 (geminal) atoms etc. brought close by accumulated error
+    # are mistaken for "bonds" (spurious bonds). As a result (a) when relaxation resolves a spurious contact it is misjudged as "flip = failure", underestimating
+    # XTP, and (b) clamp restrains that spurious bond and forces an impossible geometry, so rescue did not work.
+    # With bonds0 as reference, H addition -> H relax -> full relax are all geometric operations that do not change topology (end to end), so
+    # "topology changed" failures vanish; only "could not relax stably while keeping bonds0" failures remain.
+    ref = set(bonds0)                                              # reference for XTP judgement and clamp restraints = ADT bond graph
+    ref_dist = _heavy_conn(anums, coords, na)                      # distance topology of the generated coords (also the old-definition ref)
+    # Self-consistency miss: symmetric difference between ADT's declared graph (bonds0) and the distance topology of the generated geometry.
+    # >0 means "its own 3D coordinates do not realize the declared graph" = direct symptom of accumulated error
+    # (stretched, broken bonds = bonds0\ref_dist / spurious contacts from compressed angles etc. = ref_dist\bonds0). No xtb needed.
+    selfmis_miss = len(ref - ref_dist)    # in bonds0 but not bonded in the generated geometry = stretched, broken bond
+    selfmis_spur = len(ref_dist - ref)    # proximity mistaken for a bond in the generated geometry = spurious contact (1-3 compressed angle etc.)
     selfmis = selfmis_miss + selfmis_spur
-    if _ncomp(na, list(ref)) != 1:                                 # ② disconnection: ADT 結合グラフが1分子か
+    if _ncomp(na, list(ref)) != 1:                                 # ② disconnection: is the ADT bond graph a single molecule
         _SCREEN_STATS["disconnect"] += 1
         return None
     _det = []
@@ -456,10 +456,10 @@ def _prep(atoms, bonds, na):
             hc, _det = check_collisions([list(c) for c in coords], anums, set(bonds0))
         except Exception:
             hc = False; _det = []
-    if hc:                                                          # ① clash（崖の最大失敗群）
+    if hc:                                                          # ① clash (largest failure group at the cliff)
         _SCREEN_STATS["clash"] += 1
-        # None を返さず「screened dict」を返す -> reward 0 のままだが、めり込み深さと selfmis を持ち帰れる。
-        # batch 側で λ_c·Σ(thr-d)/na の段階罰を与えれば、今まで勾配ゼロだった 3割に密な信号が入る。
+        # Return a "screened dict" instead of None -> reward stays 0, but penetration depth and selfmis are carried back.
+        # If the batch side applies the graded penalty λ_c·Σ(thr-d)/na, a dense signal reaches the ~30% that had zero gradient.
         _depth = float(sum(max(0.0, t - d) for (_a, _b, d, t) in _det))
         return dict(screened="clash", clash_n=len(_det), clash_depth=_depth, clash_max=float(max([t - d for (_a, _b, d, t) in _det], default=0.0)),
                     selfmis=selfmis, selfmis_miss=selfmis_miss, selfmis_spur=selfmis_spur, nbond0=len(ref), na=na)
@@ -558,7 +558,7 @@ def _prep(atoms, bonds, na):
     try:
         mb = Chem.MolToMolBlock(vmol)
     except Exception:
-        _SCREEN_STATS["placer"] += 1                                  # mlhadd も VSEPR も molblock 化できず
+        _SCREEN_STATS["placer"] += 1                                  # neither mlhadd nor VSEPR could produce a molblock
         return None
     try:
         smi = Chem.MolToSmiles(Chem.RemoveHs(vmol, sanitize=False))   # crude (single-bond) smiles
@@ -620,8 +620,8 @@ def _cu_xtbopt(wd, xtb_bin, extra, inp=None, timeout=180):
 
 
 def _shape_reward(strain_pa, rmsd_heavy):
-    """XTP 成功分子の報酬: R_XTB(=0.6, 成功の下限) から R_XVR(=1.0) の間を strain と RMSD で変調。
-    掛け算なので下限 0.6 を割らない -> FAIL_CREDIT=0 が作る「成功/失敗の 0.6 ギャップ」を保つ。"""
+    """Reward for XTP-successful molecules: modulated by strain and RMSD between R_XTB (=0.6, success floor) and R_XVR (=1.0).
+    Multiplicative, so it never falls below 0.6 -> keeps the "0.6 success/failure gap" created by FAIL_CREDIT=0."""
     shape = 1.0
     if XVR_ESTRAIN_TAU > 0:
         if strain_pa is None:
@@ -633,13 +633,13 @@ def _shape_reward(strain_pa, rmsd_heavy):
 
 
 def _clamp_unclamp(mb_hprerelax, ref, anums, na, idx, workdir, xtb_bin, E_start=None, init_heavy=None):
-    """「bonds0 を保ったまま安定に緩和できるか」を試す（案B の realizable 判定）:
-    ref(=bonds0 の実結合)を距離拘束して relax (clamp) → 拘束を外して再 relax (unclamp) →
-    最終幾何が bonds0 を実現していれば realizable。
-      成功 -> xtb_relax 互換の dict（ok/opt_xyz/opt_heavy_coords/e_full/e_gain/rmsd_heavy/strain_pa/opt_heavy）
-      失敗 -> 理由文字列（F2_* = clamp 段階 / F3_* = unclamp 段階）
-    E_start (kcal/mol, H-prerelax 構造のエネルギー) を渡すと strain_pa を
-    (E_start - E_final)/na で返す = 全分子共通の基準点。渡さなければ従来どおり unclamp の利得のみ。"""
+    """Test "can it relax stably while keeping bonds0" (Plan B realizable judgement):
+    relax with ref (= actual bonds of bonds0) distance-restrained (clamp) -> remove restraints and relax again (unclamp) ->
+    realizable if the final geometry realizes bonds0.
+      success -> xtb_relax-compatible dict (ok/opt_xyz/opt_heavy_coords/e_full/e_gain/rmsd_heavy/strain_pa/opt_heavy)
+      failure -> reason string (F2_* = clamp stage / F3_* = unclamp stage)
+    If E_start (kcal/mol, energy of the H-prerelax structure) is given, strain_pa is returned as
+    (E_start - E_final)/na = common reference for all molecules. Otherwise, as before, only the unclamp gain."""
     m = Chem.MolFromMolBlock(mb_hprerelax, sanitize=False, removeHs=False)
     if m is None or m.GetNumConformers() == 0:
         return "F2_clamp_parse"
@@ -651,15 +651,15 @@ def _clamp_unclamp(mb_hprerelax, ref, anums, na, idx, workdir, xtb_bin, E_start=
     shutil.rmtree(wd, ignore_errors=True); os.makedirs(wd, exist_ok=True)
     try:
         _cu_write_xyz(os.path.join(wd, "m.xyz"), z, c)
-        hc = c[:na]                                                      # heavy 座標 (heavy-first)
-        # 目標距離 d0 は最初の幾何から一度だけ決めて固定する（fade 中は k のみ下げる）
+        hc = c[:na]                                                      # heavy coords (heavy-first)
+        # Target distance d0 is set once from the initial geometry and kept fixed (only k is lowered during fade)
         _npull = 0
         targets = []
         for (i, j) in sorted(ref):
             d = float(np.linalg.norm(hc[i] - hc[j]))
             if XVR_CLAMP_IDEAL:
                 csum = COV.get(int(anums[i]), 0.75) + COV.get(int(anums[j]), 0.75)
-                if d > 1.3 * csum:                                       # 伸びて結合していない -> 結合距離へ引き寄せる
+                if d > 1.3 * csum:                                       # stretched, not bonded -> pull in to bond length
                     targets.append((i, j, csum)); _npull += 1
                     continue
             targets.append((i, j, d))                                    # heavy-first: xyz idx = heavy idx + 1
@@ -675,21 +675,21 @@ def _clamp_unclamp(mb_hprerelax, ref, anums, na, idx, workdir, xtb_bin, E_start=
 
         fcs = [s for s in XVR_CLAMP_FADE.split(",") if s.strip()] or [XVR_CLAMP_FC]
         cz = cc = None
-        for _si, fc in enumerate(fcs):                                   # 拘束段: 力の定数を段階的に下げる
+        for _si, fc in enumerate(fcs):                                   # restrained stages: lower the force constant stepwise
             _write_inp(fc.strip())
             _last = (_si == len(fcs) - 1)
-            _lvl = ["--opt"] if (_last and not XVR_CLAMP_LOOSE) else ["--opt", "loose"]   # 途中段は粗く; LOOSE 時は最終拘束段も粗く（速度）。unclamp は下で full
+            _lvl = ["--opt"] if (_last and not XVR_CLAMP_LOOSE) else ["--opt", "loose"]   # intermediate stages coarse; with LOOSE the last restrained stage is also coarse (speed). unclamp below is full
             rc = _cu_xtbopt(wd, xtb_bin, ["--gfn", "2"] + _lvl, inp="c.inp")
             if rc is None:
                 _CLAMP_STATS["fade_fail_stage_%d" % _si] = _CLAMP_STATS.get("fade_fail_stage_%d" % _si, 0) + 1
-                return "F2_clamp_fail"                                    # bonds0 を保つ幾何に到達不能
+                return "F2_clamp_fail"                                    # cannot reach a geometry keeping bonds0
             _cv, cz, cc, _ = rc
             if not _cv and _last:
-                _CLAMP_STATS["clamp_nonconv"] = _CLAMP_STATS.get("clamp_nonconv", 0) + 1  # 情報として記録（続行）
+                _CLAMP_STATS["clamp_nonconv"] = _CLAMP_STATS.get("clamp_nonconv", 0) + 1  # recorded for information (continue)
             _cu_write_xyz(os.path.join(wd, "m.xyz"), cz, cc)
         if os.environ.get("CLAMP_KEEP") == "1" and cz is not None:
             _CU_CLAMP_CACHE[idx] = (cz.tolist(), cc.tolist())               # bonds0 IS realised here
-        ru = _cu_xtbopt(wd, xtb_bin, ["--gfn", "2", "--opt"])                # k=0: 拘束なし free relax（合格証明はここ）
+        ru = _cu_xtbopt(wd, xtb_bin, ["--gfn", "2", "--opt"])                # k=0: unrestrained free relax (the pass certificate is here)
         if ru is None:
             return "F3_unclamp_fail"
         uconv, uz, uc, ueg = ru
@@ -701,22 +701,22 @@ def _clamp_unclamp(mb_hprerelax, ref, anums, na, idx, workdir, xtb_bin, E_start=
         if _heavy_conn(anums, heavy, na) != ref:
             if os.environ.get("FLIP_KEEP") == "1":                          # diagnostics: keep the FLIPPED geometry
                 _CU_FLIP_CACHE[idx] = (uz.tolist(), uc.tolist())            # (all atoms incl. H) so the mechanism
-            return "F3_unclamp_flip"                                        # 解放で bonds0 が壊れる = 準安定・実現不可
+            return "F3_unclamp_flip"                                        # bonds0 breaks on release = metastable, not realizable
         optf = os.path.join(wd, "m.xtbopt.xyz")
-        E_final = _cu_energy_kcal(optf)                                     # unclamp 後の生 GFN2 全エネルギー (拘束バイアス無し)
+        E_final = _cu_energy_kcal(optf)                                     # raw GFN2 total energy after unclamp (no restraint bias)
         try:
             with open(optf) as f:
-                opt_xyz_txt = f.read()                                      # H整合チェック #2 用 (H が離脱していないか)
+                opt_xyz_txt = f.read()                                      # for H-integrity check #2 (no H detached?)
         except Exception:
             opt_xyz_txt = ""
         if E_start is not None and E_final is not None:
-            strain = abs(E_start - E_final) / na                            # 統一基準: H-prerelax 構造 -> 最終極小
+            strain = abs(E_start - E_final) / na                            # unified reference: H-prerelax structure -> final minimum
         else:
-            strain = abs(ueg) / na if ueg is not None else None             # 旧: unclamp 区間の利得のみ (過小評価)
+            strain = abs(ueg) / na if ueg is not None else None             # old: only the gain over the unclamp segment (underestimate)
         rmsd_h = None
         if init_heavy is not None:
             try:
-                rmsd_h = _kabsch_rmsd(init_heavy, heavy)   # 生成重原子 -> 最終極小 の積算誤差
+                rmsd_h = _kabsch_rmsd(init_heavy, heavy)   # accumulated error: generated heavy atoms -> final minimum
             except Exception:
                 rmsd_h = None
         return {"ok": True, "realizable": True, "strain_pa": strain, "opt_heavy": heavy.tolist(),
@@ -731,14 +731,14 @@ def _xtb_reward(p, xtb_bin, workdir, idx, collect_relax, use_clashvr):
     out = {"reward": R_FAIL, "rdkit_ok": False, "xtb_ok": False, "same_topo": False,
            "smi": "", "topo_post": "", "strain_pa": None, "clash_pass": False}
     if p is None:
-        return out                                                 # disconnected/completer/placer -> 0.0（情報なし）
-    if p.get("screened"):                                          # clash で screen（reward は 0 のまま。段階罰は batch 側）
+        return out                                                 # disconnected/completer/placer -> 0.0 (no information)
+    if p.get("screened"):                                          # screened by clash (reward stays 0; graded penalty on the batch side)
         for _k in ("screened", "clash_n", "clash_depth", "clash_max", "selfmis", "selfmis_miss", "selfmis_spur", "nbond0", "na"):
             out[_k] = p.get(_k)
         return out
     out["rdkit_ok"] = True; out["clash_pass"] = True               # clash-pass + completer (clashVR)
     out["placer"] = p.get("placer"); out["smi"] = p.get("smi", "")
-    # 自己整合ミス（xtb 不要）は screen を通った全分子に付ける -> xtb 非収束でもペナルティ勾配が届く
+    # Self-consistency miss (no xtb needed) is attached to every molecule passing the screen -> penalty gradient reaches even xtb-nonconverged ones
     out["selfmis"] = p.get("selfmis"); out["nbond0"] = p.get("nbond0"); out["na"] = p["na"]
     out["selfmis_miss"] = p.get("selfmis_miss"); out["selfmis_spur"] = p.get("selfmis_spur")
     if use_clashvr:
@@ -746,8 +746,8 @@ def _xtb_reward(p, xtb_bin, workdir, idx, collect_relax, use_clashvr):
     hprerelax_ok = None; E_hpre = None; res = None; n_corr = 0
     mb_start = p["mb"]                                              # placement struct; re-stripped + restarted on fragmentation
     mb_use = mb_start
-    _where = None                                                  # 離脱Hが検出された段階 ("prerelax" / "full")
-    for _att in range(1 + H_INTEGRITY_MAX_RETRY):                  # ストッパー: H prerelax へ戻れるのは最大 H_INTEGRITY_MAX_RETRY(既定3) 回
+    _where = None                                                  # stage at which a detached H was detected ("prerelax" / "full")
+    for _att in range(1 + H_INTEGRITY_MAX_RETRY):                  # stopper: return to H prerelax at most H_INTEGRITY_MAX_RETRY (default 3) times
         mb_use = mb_start
         if H_PRERELAX:                                             # H-only prerelax (freeze heavy) -> isolate heavy strain
             try:
@@ -764,19 +764,19 @@ def _xtb_reward(p, xtb_bin, workdir, idx, collect_relax, use_clashvr):
                 if mb_s is not None:
                     mb_start = mb_s; n_corr += nrem; _INTEGRITY_STATS["correct"] += 1
                     _where = "prerelax"; _MLNH_PERF["at_prerelax"] += 1
-                    continue                                       # 余剰H(偶数個)を除去 -> H-prerelax からやり直し
+                    continue                                       # remove excess H (even count) -> redo from H-prerelax
                 out["h_intact"] = False; _INTEGRITY_STATS["reject"] += 1
-                _INTEGRITY_STATS["F1a_odd_parity"] += 1; out["F"] = "F1a_odd_parity"   # 奇数個除去が必要=ラジカル化 -> reject
+                _INTEGRITY_STATS["F1a_odd_parity"] += 1; out["F"] = "F1a_odd_parity"   # odd removal needed = radical -> reject
                 return out
             mb_use = mb_h                                          # heavy frozen; H at optimum -> full relax start point
-        if XVR_CLAMP_ONLY:                                          # free relax を廃し、最初から bonds0 拘束 -> 解放
+        if XVR_CLAMP_ONLY:                                          # drop free relax; restrain bonds0 from the start -> release
             _rz = _clamp_unclamp(mb_use, p["ref"], p["anums"], p["na"], idx, workdir, xtb_bin,
                                  E_start=(E_hpre if XVR_STRAIN_HPRE else None), init_heavy=p["init_heavy"])
             _CLAMP_STATS["tried"] += 1
-            if not isinstance(_rz, dict):                           # F2_* (clamp 段階) / F3_* (unclamp 段階)
+            if not isinstance(_rz, dict):                           # F2_* (clamp stage) / F3_* (unclamp stage)
                 _CLAMP_STATS[_rz] = _CLAMP_STATS.get(_rz, 0) + 1
                 out["F"] = _rz
-                out["xtb_ok"] = _rz.startswith("F3")                # F3 = clamp 幾何は得られた -> xtb は緩和できている
+                out["xtb_ok"] = _rz.startswith("F3")                # F3 = clamp geometry was obtained -> xtb can relax it
                 out["reward"] = XVR_FAIL_CREDIT if out["xtb_ok"] else R_FAIL
                 if os.environ.get("CLAMP_KEEP") == "1" and idx in _CU_CLAMP_CACHE:
                     _cz, _cc = _CU_CLAMP_CACHE.pop(idx)
@@ -804,42 +804,42 @@ def _xtb_reward(p, xtb_bin, workdir, idx, collect_relax, use_clashvr):
                 if mb_s is not None:
                     mb_start = mb_s; n_corr += nrem; _INTEGRITY_STATS["correct_full"] += 1
                     _where = "full"; _MLNH_PERF["at_full"] += 1
-                    continue                                       # 余剰H(偶数個)を除去 -> H-prerelax からやり直し
+                    continue                                       # remove excess H (even count) -> redo from H-prerelax
                 out["h_intact"] = False; _INTEGRITY_STATS["reject_full"] += 1
                 _INTEGRITY_STATS["F1a_odd_parity"] += 1; out["F"] = "F1a_odd_parity"
                 return out
         break                                                      # intact at BOTH H-prerelax and full relax
     else:
-        _INTEGRITY_STATS["F1b_retry_exhausted"] += 1               # ストッパー作動: 上限まで戻しても intact にできず
+        _INTEGRITY_STATS["F1b_retry_exhausted"] += 1               # stopper triggered: not intact even after max retries
         out["F"] = "F1b_retry_exhausted"; out["n_strip"] = n_corr; out["n_attempt"] = H_INTEGRITY_MAX_RETRY
         return out
     out["h_intact"] = True
-    out["n_strip"] = n_corr                                        # 弾かれた H の総数(必ず偶数)
-    out["n_attempt"] = _att                                        # H-prerelax へ戻った回数 (0 = 一発で intact)
-    out["where"] = _where                                          # 離脱が検出された段階 (prerelax / full / None)
+    out["n_strip"] = n_corr                                        # total number of rejected H (always even)
+    out["n_attempt"] = _att                                        # number of returns to H-prerelax (0 = intact on first try)
+    out["where"] = _where                                          # stage at which detachment was detected (prerelax / full / None)
     _MLNH_PERF["strip_hist"][n_corr] = _MLNH_PERF["strip_hist"].get(n_corr, 0) + 1
     _MLNH_PERF["attempt_hist"][_att] = _MLNH_PERF["attempt_hist"].get(_att, 0) + 1
     if n_corr == 0:
-        _MLNH_PERF["ok_first"] += 1                                # strip 無しで成功 = MLnH の H 数がそのまま通った
+        _MLNH_PERF["ok_first"] += 1                                # success without strip = MLnH H count passed as is
     if n_corr:
         out["h_corrected"] = n_corr
-    out["xtb_ok"] = True; out["reward"] = XVR_FAIL_CREDIT           # 「緩和はできたが bonds0 未実現」の暫定値。成功なら下で上書き
+    out["xtb_ok"] = True; out["reward"] = XVR_FAIL_CREDIT           # provisional value for "relaxed but bonds0 not realized"; overwritten below on success
     eg = res.get("e_gain"); na = p["na"]
     if XVR_STRAIN_HPRE and E_hpre is not None and res.get("e_full") is not None:
-        strain_pa = abs(E_hpre - res["e_full"]) / na                # 統一基準: H-prerelax 構造 -> 最終極小 (free/clamp 共通)
+        strain_pa = abs(E_hpre - res["e_full"]) / na                # unified reference: H-prerelax structure -> final minimum (common to free/clamp)
     elif eg is not None:
         strain_pa = abs(eg) / na
     else:
-        strain_pa = res.get("strain_pa")                            # clamp-only かつ基準統一 off: unclamp 区間の利得（過小評価）
+        strain_pa = res.get("strain_pa")                            # clamp-only with unified reference off: gain over the unclamp segment (underestimate)
     out["strain_pa"] = strain_pa
     out["clamped"] = bool(res.get("clamped"))
-    out["rmsd_heavy"] = res.get("rmsd_heavy")                      # 積算誤差の直接量: 緩和で heavy がどれだけ動いたか
-    if _bank_struct():                                             # freeze HADD + 緩和 (all-atom) + funnel record
+    out["rmsd_heavy"] = res.get("rmsd_heavy")                      # direct measure of accumulated error: how far heavy atoms moved in relaxation
+    if _bank_struct():                                             # freeze HADD + relaxed (all-atom) + funnel record
         out["e_gain"] = eg                                         # (hprerelax_ok/E_hprerelax set above, pre-gate)
         out["E_full"] = res.get("e_full")
         out["nH"] = p.get("nH"); out["bonds0"] = p.get("bonds0")
         out["rmsd_heavy"] = res.get("rmsd_heavy")
-        _him = Chem.MolFromMolBlock(mb_use, sanitize=False)        # mb_use = H-prerelaxed struct = E_hprerelax の構造 = full relax の起点
+        _him = Chem.MolFromMolBlock(mb_use, sanitize=False)        # mb_use = H-prerelaxed struct = structure of E_hprerelax = starting point of full relax
         if _him is not None:
             _hc = _him.GetConformer()
             out["hadd_anums"] = [a.GetAtomicNum() for a in _him.GetAtoms()]
@@ -851,40 +851,40 @@ def _xtb_reward(p, xtb_bin, workdir, idx, collect_relax, use_clashvr):
         out["e_gain"] = eg; out["rmsd_all"] = res.get("rmsd"); out["rmsd_heavy"] = res.get("rmsd_heavy")
     oc = res.get("opt_heavy_coords")
     if oc and len(oc) == na:
-        post = _heavy_conn(p["anums"], np.asarray(oc, float), na)   # 緩和後の距離トポロジー
-        out["same_topo_old"] = (post == p.get("ref_dist"))          # 旧定義(距離 ref)の XTP: 比較・併記用のみ
-        out["bonds0_subset"] = set(p["ref"]) <= post                # 緩め基準(ii): bonds0 の結合が全て在るか(余分な接触は許容)
-        if post == p["ref"]:                                        # 厳密基準(i): 緩和後の距離トポロジー == bonds0
+        post = _heavy_conn(p["anums"], np.asarray(oc, float), na)   # distance topology after relaxation
+        out["same_topo_old"] = (post == p.get("ref_dist"))          # XTP by the old definition (distance ref): for comparison/side-by-side only
+        out["bonds0_subset"] = set(p["ref"]) <= post                # loose criterion (ii): are all bonds0 bonds present (extra contacts allowed)
+        if post == p["ref"]:                                        # strict criterion (i): relaxed distance topology == bonds0
             out["same_topo"] = True
-            if res.get("clamped"):                                  # clamp 経由で到達した bonds0 極小（clamp-only / fallback 共通）
+            if res.get("clamped"):                                  # bonds0 minimum reached via clamp (common to clamp-only / fallback)
                 _CLAMP_STATS["rescued"] += 1
-                out["rescued"] = True; out["realizable_heavy"] = oc   # IKT 教師 (gen_heavy -> realizable_heavy)
+                out["rescued"] = True; out["realizable_heavy"] = oc   # IKT target (gen_heavy -> realizable_heavy)
             out["reward"] = _shape_reward(strain_pa, out.get("rmsd_heavy"))
-        elif XVR_CLAMP:                                            # bonds0 を実現できず -> bonds0 を拘束して clamp->unclamp で救済
+        elif XVR_CLAMP:                                            # bonds0 not realized -> rescue by restraining bonds0 with clamp->unclamp
             _CLAMP_STATS["tried"] += 1
             rz = _clamp_unclamp(mb_use, p["ref"], p["anums"], na, idx, workdir, xtb_bin,
                                 E_start=(E_hpre if XVR_STRAIN_HPRE else None), init_heavy=p["init_heavy"])
-            if isinstance(rz, dict):                              # bonds0 を保つ安定極小が存在 = realizable
+            if isinstance(rz, dict):                              # a stable minimum keeping bonds0 exists = realizable
                 _CLAMP_STATS["rescued"] += 1
                 out["same_topo"] = True; out["rescued"] = True
-                out["bonds0_subset"] = True                       # 最終採用幾何(unclamp)で bonds0 を実現しているので (ii) も成立
-                out["realizable_heavy"] = rz["opt_heavy"]         # IKT 教師 (gen_heavy -> realizable_heavy), on-distribution
+                out["bonds0_subset"] = True                       # final adopted geometry (unclamp) realizes bonds0, so (ii) also holds
+                out["realizable_heavy"] = rz["opt_heavy"]         # IKT target (gen_heavy -> realizable_heavy), on-distribution
                 out["strain_pa"] = rz.get("strain_pa"); out["rmsd_heavy"] = rz.get("rmsd_heavy")
                 out["reward"] = _shape_reward(rz.get("strain_pa"), rz.get("rmsd_heavy"))
             else:
-                out["F"] = rz or "F3_not_realizable"              # F2_clamp_* / F3_unclamp_* （_clamp_unclamp が理由を返す）
+                out["F"] = rz or "F3_not_realizable"              # F2_clamp_* / F3_unclamp_* (_clamp_unclamp returns the reason)
                 if os.environ.get("FLIP_KEEP") == "1" and idx in _CU_FLIP_CACHE:
                     _fz, _fc = _CU_FLIP_CACHE.pop(idx)                # the geometry xTB actually relaxed to
                     out["flip_anums"] = _fz; out["flip_coords"] = _fc  # -> lets us diff the graph and see WHAT changed
                 _CLAMP_STATS[out["F"]] = _CLAMP_STATS.get(out["F"], 0) + 1
         else:
-            out["F"] = "F3_not_realizable"                        # clamp 無効時: bonds0 を実現できなかった
+            out["F"] = "F3_not_realizable"                        # clamp disabled: bonds0 could not be realized
     return out
 
 
 def pfree_reward_batch(mols, xtb_bin, workdir, max_workers=16, collect_relax=False):
     global _clash_ema, _switched
-    if PFREE_DUMP:                                                  # 採点方式の A/B 比較用に生成分子を素の形で吐く
+    if PFREE_DUMP:                                                  # dump generated molecules in raw form for A/B comparison of scoring schemes
         import pickle
         with open(PFREE_DUMP, "ab") as _f:
             for (atoms, bonds, na) in mols:
@@ -943,50 +943,50 @@ def pfree_reward_batch(mols, xtb_bin, workdir, max_workers=16, collect_relax=Fal
         print("[XVR_CLAMP] bonds0-clamp rescued (clamp->unclamp realizable): %d/%d tried | fail: %s"
               % (s["rescued"], s["tried"],
                  {k: v for k, v in s.items() if k.startswith(("F2", "F3", "clamp_"))}), flush=True)
-    # --- 積算誤差ペナルティ: 自己整合ミス(xtb不要・全分子) + 緩和変位RMSD(xtb収束分子のみ) ---
+    # --- accumulated-error penalty: self-consistency miss (no xtb, all molecules) + relaxation displacement RMSD (xtb-converged only) ---
     if XVR_SELFMIS_LAM > 0 or XVR_RMSD_LAM > 0 or XVR_CLASH_LAM > 0:
         for r in results:
             if not r or r.get("selfmis") is None:
-                continue                                            # 情報の無い screen 落ち(p=None)はそのまま 0
+                continue                                            # uninformative screen-outs (p=None) stay at 0
             if r.get("same_topo"):
-                continue                     # 成功側は shaping(strain,rmsd) で格付け済み。減算は 0.6 のギャップを潰す
+                continue                     # success side is already graded by shaping (strain, rmsd); subtracting would collapse the 0.6 gap
             pen = 0.0
             if XVR_SELFMIS_LAM > 0:
                 pen += XVR_SELFMIS_LAM * (r["selfmis"] / max(int(r.get("nbond0") or 1), 1))
             if XVR_RMSD_LAM > 0 and r.get("rmsd_heavy"):
                 pen += XVR_RMSD_LAM * float(r["rmsd_heavy"])
-            if XVR_CLASH_LAM > 0 and r.get("clash_depth"):          # clash 段階罰（崖の最大失敗群に密な勾配）
+            if XVR_CLASH_LAM > 0 and r.get("clash_depth"):          # graded clash penalty (dense gradient for the largest failure group at the cliff)
                 pen += XVR_CLASH_LAM * (float(r["clash_depth"]) / max(int(r.get("na") or 1), 1))
-            r["reward"] = r["reward"] - pen                          # 負値も許容(baseline が吸収; 最悪分子に最強の押し)
-    # --- clash の重篤度分布（λ_c のスケール決定用。xtb 不要） ---
+            r["reward"] = r["reward"] - pen                          # negative values allowed (absorbed by baseline; strongest push on the worst molecules)
+    # --- clash severity distribution (for choosing the λ_c scale; no xtb needed) ---
     _cd = [r for r in results if r and r.get("clash_depth") is not None]
     if _cd:
         _dep = np.asarray([float(r["clash_depth"]) for r in _cd])
         _dpa = np.asarray([float(r["clash_depth"]) / max(int(r.get("na") or 1), 1) for r in _cd])
         _cn = np.asarray([int(r["clash_n"]) for r in _cd])
-        print("[CLASH] clash分子 %d/%d | 衝突対 mean=%.1f max=%d | Σめり込み深さ(Å) mean=%.2f p90=%.2f max=%.2f | 深さ/原子 mean=%.4f p90=%.4f"
+        print("[CLASH] clash molecules %d/%d | clashing pairs mean=%.1f max=%d | Σpenetration depth(Å) mean=%.2f p90=%.2f max=%.2f | depth/atom mean=%.4f p90=%.4f"
               % (len(_cd), len(results), float(_cn.mean()), int(_cn.max()), float(_dep.mean()),
                  float(np.percentile(_dep, 90)), float(_dep.max()), float(_dpa.mean()), float(np.percentile(_dpa, 90))), flush=True)
-    # --- 自己整合の統計（積算誤差の直接指標, xtb 不要）: 生成幾何が bonds0 を実現できているか ---
+    # --- self-consistency statistics (direct indicator of accumulated error, no xtb): does the generated geometry realize bonds0 ---
     _sm = [int(r["selfmis"]) for r in results if r and r.get("selfmis") is not None]
     if _sm:
         _a = np.asarray(_sm)
         _ms = np.asarray([int(r["selfmis_miss"]) for r in results if r and r.get("selfmis") is not None])
         _sp = np.asarray([int(r["selfmis_spur"]) for r in results if r and r.get("selfmis") is not None])
         _nb = np.asarray([max(int(r.get("nbond0") or 1), 1) for r in results if r and r.get("selfmis") is not None])
-        print("[SELFCONSIST] 生成幾何が bonds0 を実現: %d/%d (%.1f%%) | |Δ| mean=%.2f p90=%.0f max=%.0f | "
-              "内訳: 伸びて切れた結合 mean=%.2f (>0 の分子 %.1f%%) / 偽接触 mean=%.2f (>0 の分子 %.1f%%) | |Δ|/|bonds0| mean=%.4f p90=%.4f"
+        print("[SELFCONSIST] generated geometry realizes bonds0: %d/%d (%.1f%%) | |Δ| mean=%.2f p90=%.0f max=%.0f | "
+              "breakdown: stretched-broken bonds mean=%.2f (molecules with >0 %.1f%%) / spurious contacts mean=%.2f (molecules with >0 %.1f%%) | |Δ|/|bonds0| mean=%.4f p90=%.4f"
               % (int((_a == 0).sum()), len(_a), 100 * float((_a == 0).mean()), float(_a.mean()),
                  float(np.percentile(_a, 90)), int(_a.max()),
                  float(_ms.mean()), 100 * float((_ms > 0).mean()), float(_sp.mean()), 100 * float((_sp > 0).mean()),
                  float((_a / _nb).mean()), float(np.percentile(_a / _nb, 90))), flush=True)
-    # --- 失敗が「どの段階」で起きたか（崖の主因を特定する）---
-    # screened      : _prep で落ちた (連結性 / clash / completer nH / mlhadd の H 付与失敗)
-    # hprerelax_fail: H は付いたが、heavy 凍結で H だけ緩和しても収束しない (骨格が酷すぎて H の置き場が無い)
-    # relax_fail    : H 付与も H 緩和も通過。**全部動かす full relax が非収束** = 重原子骨格の積算誤差が主因
-    # not_realizable: full relax は収束したが bonds0 を実現できず (F3)
+    # --- at which stage failures occurred (to identify the main cause of the cliff) ---
+    # screened      : dropped in _prep (connectivity / clash / completer nH / mlhadd H placement failure)
+    # hprerelax_fail: H placed, but relaxing only H with heavy atoms frozen does not converge (skeleton too bad to accommodate H)
+    # relax_fail    : passed H placement and H relax. **full relax moving everything does not converge** = mainly heavy-skeleton accumulated error
+    # not_realizable: full relax converged but bonds0 not realized (F3)
     _stage = {"ok": 0, "not_realizable": 0, "relax_fail": 0, "hprerelax_fail": 0, "F1a": 0, "F1b": 0, "screened": 0}
-    _stage_sm = {k: [] for k in _stage}                              # 段階別の自己整合ミス |Δ|
+    _stage_sm = {k: [] for k in _stage}                              # self-consistency miss |Δ| per stage
     for r in results:
         if not r:
             continue
@@ -1007,15 +1007,15 @@ def pfree_reward_batch(mols, xtb_bin, workdir, max_workers=16, collect_relax=Fal
         _stage[_b] += 1
         if r.get("selfmis") is not None:
             _stage_sm[_b].append(int(r["selfmis"]))
-    print("[FAILSTAGE] %s   ※relax_fail = H付与もH緩和も成功したが full relax が非収束 = 重原子幾何の積算誤差" % _stage, flush=True)
-    # 崖では screened が最大の失敗群。その内訳（累積）: どの screen が効いているか
+    print("[FAILSTAGE] %s   note: relax_fail = H placement and H relax succeeded but full relax did not converge = accumulated error in heavy-atom geometry" % _stage, flush=True)
+    # At the cliff, screened is the largest failure group. Its breakdown (cumulative): which screen is active
     if sum(_SCREEN_STATS.values()):
-        print("[SCREEN] 内訳(累積): %s   ※これらは _prep で落ちるため selfmis も付かず reward 0（勾配ゼロ）" % _SCREEN_STATS, flush=True)
-    # ★λ1 が relax_fail を狙えるかの決定的診断: 各段階の |Δ| 平均と「|Δ|>0 の割合」
-    print("[FAILSTAGE|Δ] 段階別 自己整合ミス |Δ| mean (n, |Δ|>0の割合): %s" %
+        print("[SCREEN] breakdown (cumulative): %s   note: these drop out in _prep, so they get no selfmis and reward 0 (zero gradient)" % _SCREEN_STATS, flush=True)
+    # ★Decisive diagnostic of whether λ1 can target relax_fail: mean |Δ| per stage and the "fraction with |Δ|>0"
+    print("[FAILSTAGE|Δ] self-consistency miss |Δ| per stage, mean (n, fraction |Δ|>0): %s" %
           {k: (round(float(np.mean(v)), 2), len(v), "%.0f%%" % (100 * float(np.mean(np.asarray(v) > 0))))
            for k, v in _stage_sm.items() if v}, flush=True)
-    # --- 案B: 新旧 XTP の併記 + 失敗内訳 (F1a/F1b/F2/F3) ---
+    # --- Plan B: new and old XTP side by side + failure breakdown (F1a/F1b/F2/F3) ---
     _n = len(results)
     _new = sum(1 for r in results if r and r.get("same_topo"))
     _old = sum(1 for r in results if r and r.get("same_topo_old"))
@@ -1024,10 +1024,10 @@ def pfree_reward_batch(mols, xtb_bin, workdir, max_workers=16, collect_relax=Fal
     for r in results:
         if r and r.get("F"):
             _F[r["F"]] = _F.get(r["F"], 0) + 1
-    print("[XTP] bonds0-厳密(i)=%d/%d (%.1f%%) | bonds0-緩め(ii)=%d (%.1f%%) | 旧定義(距離ref)=%d (%.1f%%) | 失敗内訳 %s"
+    print("[XTP] bonds0-strict(i)=%d/%d (%.1f%%) | bonds0-loose(ii)=%d (%.1f%%) | old definition (distance ref)=%d (%.1f%%) | failure breakdown %s"
           % (_new, _n, 100 * _new / max(_n, 1), _loose, 100 * _loose / max(_n, 1),
              _old, 100 * _old / max(_n, 1), _F), flush=True)
-    # --- サイズ別 XTP: 母集団平均は 40+ テールに引かれるので、サイズ帯ごとに割る ---
+    # --- XTP by size: the population mean is pulled by the 40+ tail, so split by size band ---
     _BUCKETS = [(0, 24), (25, 29), (30, 34), (35, 39), (40, 999)]
     _sz_tot = {b: 0 for b in _BUCKETS}
     _sz_ok = {b: 0 for b in _BUCKETS}
@@ -1063,17 +1063,17 @@ def pfree_reward_batch(mols, xtb_bin, workdir, max_workers=16, collect_relax=Fal
         _rw = [float(r["reward"]) for r in results if r and r.get("same_topo")]
         _rm = sorted(float(r["rmsd_heavy"]) for r in results
                      if r and r.get("same_topo") and r.get("rmsd_heavy"))
-        _rs = ("| 緩和変位RMSD(Kabsch,heavy) mean=%.3f p50=%.3f p90=%.3f max=%.3f Å"
+        _rs = ("| relaxation displacement RMSD(Kabsch,heavy) mean=%.3f p50=%.3f p90=%.3f max=%.3f Å"
                % (sum(_rm) / len(_rm), _rm[len(_rm) // 2], _rm[min(len(_rm) - 1, int(.9 * len(_rm)))], _rm[-1])) if _rm else ""
-        print("[STRAIN] XTP成功分子の strain/heavy (kcal/mol/atom, 基準=%s): mean=%.2f p50=%.2f p90=%.2f max=%.2f | 報酬 mean=%.3f min=%.3f %s"
-              % ("H-prerelax" if XVR_STRAIN_HPRE else "緩和区間の利得",
+        print("[STRAIN] strain/heavy of XTP-successful molecules (kcal/mol/atom, reference=%s): mean=%.2f p50=%.2f p90=%.2f max=%.2f | reward mean=%.3f min=%.3f %s"
+              % ("H-prerelax" if XVR_STRAIN_HPRE else "gain over relaxation segment",
                  sum(_sp) / len(_sp), _q(0.5), _q(0.9), _sp[-1],
                  sum(_rw) / max(len(_rw), 1), min(_rw) if _rw else 0.0, _rs), flush=True)
-    # --- MLnH(+MLHplacer) 性能: 何個(偶数)・何回 弾いてから成功したか ---
+    # --- MLnH(+MLHplacer) performance: how many H (even) were rejected, and in how many rounds, before success ---
     m = _MLNH_PERF
     if m["ok_first"] or m["strip_hist"]:
         _tot = sum(m["strip_hist"].values()) or 1
-        print("[MLNH_PERF] strip無しで成功=%d/%d (%.1f%%) | strip分布(H数:件)=%s | retry分布(回:件)=%s | 検出段階 prerelax=%d full=%d | 奇数→追加除去=%d | F1a_odd_reject=%d F1b_exhausted=%d"
+        print("[MLNH_PERF] success without strip=%d/%d (%.1f%%) | strip distribution (nH:count)=%s | retry distribution (rounds:count)=%s | detection stage prerelax=%d full=%d | odd->extra removal=%d | F1a_odd_reject=%d F1b_exhausted=%d"
               % (m["ok_first"], _tot, 100 * m["ok_first"] / _tot, dict(sorted(m["strip_hist"].items())),
                  dict(sorted(m["attempt_hist"].items())), m["at_prerelax"], m["at_full"], m["odd_extra_removed"],
                  _INTEGRITY_STATS["F1a_odd_parity"], _INTEGRITY_STATS["F1b_retry_exhausted"]), flush=True)

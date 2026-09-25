@@ -1,23 +1,22 @@
 """
 train.py — ADT free-order training.
 
-★ 親原子の指定 = transformer は RELATIVE OFFSET を学習・予測する ★
-  (詳細・正準説明: common/POINTER.md)
+* Parent atoms are referenced by a RELATIVE OFFSET, which the transformer learns and predicts *
 
-  - ADD/LINK の親は「placement order で何個前か」= relative offset で指定される。
-  - 出力 head_from/head_to = max_offset クラスの softmax (output_pointer_mode='offset')。
-  - loss(=学習する量)は offset class: tgt = (atom_count_before+1) - parent - 1。
-  - 生成も offset を sample して parent = n_atoms - offset。
-  → adt.tex §7.4「Parent references use a relative offset」/ §8「offset slot
-    encodes a relative pointer」と整合。weight レベルでも確定(head_from 行数==max_offset)。
+  - The parent of an ADD/LINK is given as "how many atoms back in placement order" = relative offset.
+  - Output heads head_from/head_to = softmax over max_offset classes (output_pointer_mode='offset').
+  - The loss (the learned quantity) is the offset class: tgt = (atom_count_before+1) - parent - 1.
+  - Generation samples the offset too: parent = n_atoms - offset.
+  -> consistent with the paper ("parent references use a relative offset"; "the offset slot encodes
+    a relative pointer"), and fixed at the weight level (rows of head_from == max_offset).
 
-  実装詳細 (機構ではない・誤読注意): トークン配列の slot 1 には親の【絶対 placement
-  index】が格納される (lossless な bookkeeping)。offset はそこから compute_loss /
-  生成時に復元される。絶対格納から「モデルは絶対位置で親指定」と読まないこと。
+  Implementation detail (not the mechanism; do not misread): slot 1 of the token array stores the
+  parent's ABSOLUTE placement index (lossless bookkeeping). The offset is recovered from it in
+  compute_loss and at generation. The absolute storage does not mean the model points by absolute position.
 
-  サイズ制約:
-  - max_offset = offset softmax のクラス数 = 親指定の本質的制約。tokenizer で enforce
-    (tokenize_molecule(..., max_offset=) が offset>max_offset の順序を reject)。
+  Size constraint:
+  - max_offset = number of offset-softmax classes = the intrinsic limit on parent references, enforced
+    by the tokenizer (tokenize_molecule(..., max_offset=) rejects orders with offset > max_offset).
 """
 
 import argparse
@@ -108,8 +107,8 @@ class FreeOrderDrugsDataset(Dataset):
     """QM9 with on-the-fly free-order tokenization."""
 
     def __init__(self, molecules, split='train', n_val=5000, seed=42, max_offset=None):
-        # max_offset: tokenizer に渡し、offset > max_offset の順序を reject させる
-        # (固定サイズ offset softmax の制約を tokenizer レベルで enforce)。
+        # max_offset: passed to the tokenizer, which rejects orders with offset > max_offset
+        # (enforces the fixed-size offset softmax at the tokenizer level).
         self.max_offset = max_offset
         n_total = len(molecules)
         rng = np.random.RandomState(seed)

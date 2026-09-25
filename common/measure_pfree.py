@@ -30,7 +30,7 @@ import reward_pfree                                    # loads completer (COMPLE
 dev = "cuda" if torch.cuda.is_available() else "cpu"
 GEN = os.environ.get("GEN_CKPT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/vtakao202606231610/ckpts/scratch_epoch240.pt"))
 import hashlib
-GEN_HASH = "sha256:" + hashlib.sha256(open(GEN, "rb").read()).hexdigest()   # ckpt 内容の hash (path非依存・cp不変)
+GEN_HASH = "sha256:" + hashlib.sha256(open(GEN, "rb").read()).hexdigest()   # hash of the ckpt contents (independent of path, unchanged by copying)
 ck = torch.load(GEN, map_location="cpu", weights_only=False)
 model = T.build_model(ck.get("config", ck.get("cfg")))
 model.load_state_dict(ck["model"]); model.to(dev).eval()
@@ -135,7 +135,7 @@ for at, bonds, na in mols:
 # --- XVR via the reward pipeline (H placed -> xTB -> topology) ---
 COLLECT = os.environ.get("BANK_RELAX", "0") == "1"            # richer xTB stats (rmsd/geom) if banking
 if SAVE_BANK:
-    os.environ["BANK_STRUCT"] = "1"                           # make reward_pfree freeze HADD + 緩和 structs
+    os.environ["BANK_STRUCT"] = "1"                           # make reward_pfree freeze the H-added + relaxed structures
 _t_xtb0 = _time.time()
 res = reward_pfree.pfree_reward_batch(mols, XTB, "/tmp/measure_pfree_work", max_workers=WORKERS, collect_relax=COLLECT)
 _T_XTB = _time.time() - _t_xtb0
@@ -152,23 +152,23 @@ if SAVE_BANK:
         hadd_a, hadd_c = r.get("hadd_anums"), r.get("hadd_coords")
         rel_a, rel_c = r.get("relaxed_anums"), r.get("relaxed_coords")
         Eh, Ef = r.get("E_hprerelax"), r.get("E_full")          # clean strain = E_hprerelax - E_full (>0)
-        # H-prerelax 失敗(Eh=None)なら full relax は生構造から走り strain が汚染される -> null(汚染値は入れない)
+        # if H-prerelax failed (Eh=None) the full relax started from the raw structure and the strain is contaminated -> null
         strain_dE = (Eh - Ef) if (Eh is not None and Ef is not None) else None
         records.append({
-            "scaffold": SCAF, "gen_ckpt": GEN, "gen_ckpt_hash": GEN_HASH,          # 来歴
-            "n_heavy": b["na"], "bonds0": b["bonds0"],                              # グラフ(LINK)
-            "struct_init":    ({"anums": hadd_a, "coords": hadd_c} if hadd_a is not None else None),  # 生H(緩和なし)
-            "struct_relaxed": ({"anums": rel_a, "coords": rel_c} if rel_a is not None else None),     # full後
+            "scaffold": SCAF, "gen_ckpt": GEN, "gen_ckpt_hash": GEN_HASH,          # provenance
+            "n_heavy": b["na"], "bonds0": b["bonds0"],                              # graph (incl. LINK)
+            "struct_init":    ({"anums": hadd_a, "coords": hadd_c} if hadd_a is not None else None),  # H placed, not relaxed
+            "struct_relaxed": ({"anums": rel_a, "coords": rel_c} if rel_a is not None else None),     # after full relax
             "mlnh_ok": b.get("mlnh_ok"), "nH": b.get("nH"),                         # funnel: MLnH
-            "hplace_method": placer, "hplace_ok": placer is not None,               #         MLHplace(3値)
+            "hplace_method": placer, "hplace_ok": placer is not None,               #         MLHplace (3-valued)
             "hprerelax_ok": r.get("hprerelax_ok"), "E_hprerelax": r.get("E_hprerelax"),  #     H-prerelax
-            "h_intact": r.get("h_intact"),                                          # H整合ゲート: 離脱H無し(fragmentation reject)
+            "h_intact": r.get("h_intact"),                                          # H-integrity gate: no detached H (fragmentation rejected)
             "full_ok": bool(r.get("xtb_ok")), "E_full": r.get("E_full"),            #         full relax
             "xvr": bool(r.get("same_topo")),                                        #         XVR
-            "strain_dE": strain_dE,                                                 # 導出: ΔE=E_hpre-E_full(>0)
-            "strain_pa": (strain_dE / b["na"] if strain_dE is not None else None),  # =ΔE/n_heavy (汚染時null)
+            "strain_dE": strain_dE,                                                 # derived: dE = E_hpre - E_full (> 0)
+            "strain_pa": (strain_dE / b["na"] if strain_dE is not None else None),  # = dE / n_heavy (null if contaminated)
             "rmsd_heavy": r.get("rmsd_heavy"),
-            "connected": b["connected"], "clash": b["clash"],                       # 幾何ゲート(pre-funnel)
+            "connected": b["connected"], "clash": b["clash"],                       # geometry gates (pre-funnel)
         })
     bank_path = os.path.join(SAVE_BANK, "pfree_bank_%s.pt" % SCAF)
     torch.save({"scaffold": SCAF, "gen_ckpt": GEN, "gen_ckpt_hash": GEN_HASH, "n": len(mols),
@@ -189,7 +189,7 @@ print("========== PERCEPTION-FREE Table-4 (%s, N=%d) ==========" % (SCAF, Nt))
 print("  noclash-connected/N = %d/%d = %.2f%%" % (n_ncc, Nt, 100 * n_ncc / max(Nt, 1)))
 print("  mol_stable/N        = %d/%d = %.2f%%  (completer n_H forced, SanitizeMol)" % (n_ms, Nt, 100 * n_ms / max(Nt, 1)))
 print("  XVR/N               = %d/%d = %.2f%%" % (n_xvr, Nt, 100 * n_xvr / max(Nt, 1)))
-print("  --- RDKit dropout (計算のみ, 表には任意) ---")
+print("  --- RDKit dropout (computed only; optional for the table) ---")
 print("  kekulized/N (RDKit own) = %d/%d = %.2f%%" % (n_kek, Nt, 100 * n_kek / max(Nt, 1)))
-print("  kekulized/mol_stable    = %d/%d = %.2f%%   (残り %.1f%% = RDKitが落とした芳香 = 回収)"
+print("  kekulized/mol_stable    = %d/%d = %.2f%%   (remaining %.1f%% = aromatics RDKit dropped = recovered)"
       % (n_kek, n_ms, 100 * n_kek / max(n_ms, 1), 100 * (1 - n_kek / max(n_ms, 1))))

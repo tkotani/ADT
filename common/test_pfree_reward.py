@@ -40,7 +40,7 @@ for r in res:
     elif abs(rw - 0.3) < 1e-6:
         tiers["0.3 clashVR"] += 1
     elif abs(rw - 0.6) < 1e-6:
-        tiers["0.6 xtb-ok(topo変)"] += 1
+        tiers["0.6 xtb-ok(topo changed)"] += 1
     else:
         tiers["topo(0.6-1.0 estrain)"] += 1
 print("N=%d  reward tiers: %s" % (len(res), dict(tiers)))
@@ -52,12 +52,12 @@ by_placer = defaultdict(list)
 for r in res:
     if r.get("strain_pa") is not None:
         by_placer[r.get("placer")].append(r["strain_pa"])
-print("H_PLACER=%s  placer別 strain_pa median:" % os.environ.get("H_PLACER", "rdkit"))
+print("H_PLACER=%s  strain_pa median per placer:" % os.environ.get("H_PLACER", "rdkit"))
 for pl, v in by_placer.items():
     print("   %-6s n=%d  strain median=%.2f  (topo tier = 0.6+0.4*exp(-strain/3.5))" % (pl, len(v), np.median(v)))
 sp = [r["strain_pa"] for r in res if r.get("strain_pa") is not None]
 if sp:
-    print("全体 strain_pa median=%.3f" % np.median(sp))
+    print("overall strain_pa median=%.3f" % np.median(sp))
 print("examples:")
 for r in res[:6]:
     print("  reward=%.3f clash_pass=%s xtb_ok=%s topo=%s strain_pa=%s"

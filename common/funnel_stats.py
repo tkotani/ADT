@@ -6,9 +6,9 @@ into one dir and aggregated (no directory scheme needed).
 
 Funnel (monotonic, each stage a subset of the previous):
     gen -> noclash -> MLnH -> mlhadd -> H-prerelax -> full -> XTP
-  XTP = xTB Topology-Preserved (= 合格). Aggregate rate = XTPR.
+  XTP = xTB Topology-Preserved (= accepted). Aggregate rate = XTPR.
   [+ rdkit_valid: SUPPLEMENTARY stricter check = RDKit perceives a neutral closed-shell molecule.
-   合格=XTP; rdkit_valid is a conservative lower bound -- the small XTP-vs-rdkit_valid gap is mostly
+   accepted = XTP; rdkit_valid is a conservative lower bound -- the small XTP-vs-rdkit_valid gap is mostly
    RDKit Kekule/valence perception limits on real molecules (perceivable as charged), not true
    invalidity. Set RDKIT_VALID=0 to skip it (faster).]
 
@@ -56,7 +56,7 @@ def nested(R):
     mh = [r for r in ml if r["hplace_method"] == "mlhadd"]
     hp = [r for r in mh if r["hprerelax_ok"]]
     fu = [r for r in hp if r["full_ok"]]
-    xv = [r for r in fu if r["xvr"]]                            # XTP = xTB Topology-Preserved (= 合格)
+    xv = [r for r in fu if r["xvr"]]                            # XTP = xTB Topology-Preserved (= accepted)
     rvn = sum(1 for r in xv if rdkit_valid(r)) if DO_RV else 0  # supplementary stricter (RDKit closed-shell)
     return len(R), len(nc), len(ml), len(mh), len(hp), len(fu), len(xv), rvn, xv
 
@@ -68,7 +68,7 @@ hdr = "%-16s %5s %5s %5s %6s %6s %5s %5s" % ("scaffold", "gen", "ncls", "MLnH", 
 if DO_RV:
     hdr += " %7s" % "rdkit_v"
 hdr += " | %7s %8s" % ("strain", "dE")
-print(hdr + "   (XTP=xTB Topology-Preserved=合格; rdkit_v=補助的な厳しめ下限)")
+print(hdr + "   (XTP=xTB Topology-Preserved=accepted; rdkit_v=supplementary stricter lower bound)")
 allx = []
 allrv = 0
 for s in scafs:
