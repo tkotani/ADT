@@ -136,11 +136,13 @@ paper's 9808 / 9562 (95.6%) / 10.2: sampling noise, not bit identity.
 ## Stage 5 — Figure 7 (IKT)
 
 ```bash
-python3 Drugs/vtakao202606231610/ikt_eval_big.py \
-  --ckpt ~/assets/rlvr_E240direct.pt --ikt ~/assets/ikt_torsion_bend.pt \
-  --out persize_ikt.json
-python3 Drugs/vtakao202606231610/plot_ikt_xtp_size.py \
-  --recs persize_ikt.json --out ikt_xtp_size.pdf
+# same XTP environment as Stage 3 (see run_gen_records.sh)
+cd Drugs/vtakao202606231610
+python3 ikt_eval_big.py \
+  --adt ~/assets/rlvr_E240direct.pt --ikt ~/assets/ikt_torsion_bend.pt \
+  --frame_cache ~/assets/frames/frame_cache_bootstrap3.pt \
+  --n_mol 1800 --min_na 21 --out persize_ikt.json
+python3 plot_ikt_xtp_size.py --recs persize_ikt.json --out ikt_xtp_size.pdf
 ```
 
 Both curves come from the same molecules: ADT alone is the fraction that is XTP

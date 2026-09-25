@@ -77,6 +77,8 @@ def main():
                    help="1 = NULL CONTROL: use an UNTRAINED head (uniform over the whole circle) with the "
                         "identical candidate machinery. This is what separates 'the IKT learned something' "
                         "from 'rotamer search works'.")
+    p.add_argument("--size_ceiling", type=int, default=0, help="0 = use ckpt size_nmax")
+    p.add_argument("--max_steps", type=int, default=0, help="0 = use ckpt max_steps_per_mol")
     args = p.parse_args()
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
