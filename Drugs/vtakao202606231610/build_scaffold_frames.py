@@ -5,8 +5,9 @@ A scaffold frame is the opening of a tokenized GEOM-Drugs molecule that lays dow
 ring: ring_size ADD steps that place the ring atoms, then the LINK that closes the ring. Generation
 starts from such a frame, so every molecule of that row is grown from the named ring.
 
-For each GEOM molecule containing the scaffold (SMARTS match), the molecule is tokenized from a ring
-atom as root, and the frame is kept only if
+For each GEOM molecule containing the scaffold (SMARTS match; at most two matched rings), the molecule is
+tokenized from ring[0] and from ring[len//2] as root (the earlier caches' choice, --roots original), and a
+frame is kept only if
   (1) the first ring_size steps are ADD actions and step ring_size is a LINK, and
   (2) the first ring_size PLACED atoms are exactly the atoms of the matched scaffold ring.
 Check (2) is what makes the frame the named ring. Without it (earlier caches) a root on a fused
@@ -36,7 +37,7 @@ SCAFFOLDS = {"benzene": ("c1ccccc1", 6), "pyridine": ("c1ccncc1", 6), "pyrimidin
              "furan": ("c1ccoc1", 5), "thiophene": ("c1ccsc1", 5)}
 
 
-def ring_frames(mols, query, ring_size, n_frames):
+def ring_frames(mols, query, ring_size, n_frames, roots="all"):
     frame_len = N_SLOTS * (ring_size + 1)
     frames, stats = [], Counter()
     for item in mols:
@@ -55,7 +56,10 @@ def ring_frames(mols, query, ring_size, n_frames):
         pos = np.asarray(pos, dtype=np.float64)
         for ring in matches[:2]:                       # at most two rings per molecule
             ring_set = set(int(a) for a in ring)
-            for root in ring:                          # any ring atom may start the frame
+            # "all": try the ring atoms in turn, keep the first frame that passes (one per ring);
+            # "original": the earlier builder's choice, roots ring[0] and ring[len//2], keep every frame that passes
+            root_list = (ring[0], ring[len(ring) // 2]) if roots == "original" else ring
+            for root in root_list:
                 stats["tries"] += 1
                 try:
                     res = tokenize_molecule(mol, pos, root=int(root))
@@ -77,7 +81,10 @@ def ring_frames(mols, query, ring_size, n_frames):
                     continue
                 frames.append(np.array(frame, dtype=np.int32))
                 stats["kept"] += 1
-                break                                  # one frame per matched ring
+                if roots != "original":
+                    break                              # one frame per matched ring
+                if len(frames) >= n_frames:
+                    break
             if len(frames) >= n_frames:
                 break
     return frames, stats
@@ -90,6 +97,8 @@ def main():
     ap.add_argument("--n_frames", type=int, default=1000)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--only", default="", help="comma-separated scaffold names")
+    ap.add_argument("--roots", choices=["all", "original"], default="original",
+                    help="root choice: 'original' = ring[0] and ring[len//2] as in the earlier caches")
     args = ap.parse_args()
     random.seed(args.seed); np.random.seed(args.seed)   # the tokenizer's free order uses `random`
     mols = pickle.load(open(args.pkl, "rb"))
@@ -98,7 +107,7 @@ def main():
     names = args.only.split(",") if args.only else list(SCAFFOLDS)
     for name in names:
         smarts, rs = SCAFFOLDS[name]
-        fr, st = ring_frames(mols, Chem.MolFromSmarts(smarts), rs, args.n_frames)
+        fr, st = ring_frames(mols, Chem.MolFromSmarts(smarts), rs, args.n_frames, roots=args.roots)
         out = os.path.join(args.outdir, "frame_cache_%s_real.pt" % name)
         torch.save({"frames": fr}, out)
         print("%-12s %5d frames  (%s) -> %s" % (name, len(fr), dict(st), out), flush=True)
