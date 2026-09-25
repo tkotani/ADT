@@ -121,6 +121,8 @@ python3 common/funnel_stats.py /out/bank      # xTB-side funnel + strain (quick 
 # public GEOM release, https://doi.org/10.7910/DVN/JNGTDF, rdkit_folder)
 python3 common/geom_smiles.py <path>/rdkit_folder/summary_drugs.json geom_drugs.smi
 python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi   # Table 2, Table 3, Fig. 6
+# GEOM side of Table 3: GEOM sub-sampled to each row's N^gen (from paper_tables.py)
+python3 common/geom_matched_diversity.py geom_drugs.smi benzene=<N^gen> pyridine=<N^gen> ...
 ```
 
 `paper_tables.py` prints every column of Table 2 (funnel, size, RMSD, strain) and the model
