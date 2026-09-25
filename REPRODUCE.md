@@ -48,10 +48,16 @@ mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames   # -
 | `completer_best.pt` | 104 MB | `33e56a7ef9e5` | MLnH: hydrogen count (perception-free, no RDKit) |
 | `mlhadd_v6prod_best.pt` | 107 MB | `765517732e31` | MLHplacer: hydrogen directions |
 | `ikt_torsion_bend.pt` | 349 MB | `b86cbc74e0ef` | IKT corrector (§4.5, Fig. 7) |
-| `frame_caches.tar.gz` | 0.3 MB | `637a732a1598` | `frame_cache_bootstrap3.pt` (Stage 2) + one cache per scaffold (Stage 3) |
+| `frame_caches.tar.gz` | 0.3 MB | `df9889c60035` | `frame_cache_bootstrap3.pt` (Stage 2) + one cache per scaffold (Stage 3) |
 
 The checkpoints have the optimizer state stripped: they are for inference and for
 starting the next stage, not for resuming the original run.
+
+The scaffold frame caches are built by `Drugs/vtakao202606231610/build_scaffold_frames.py`: every
+frame of a scaffold lays down exactly that ring (its first placed atoms are the matched ring atoms)
+before generation continues. The caches released with v2.0 lacked this check, and 0.6-14% of the
+frames of some scaffolds (benzene, pyrimidine, pyrazine, cyclohexane) were another ring; v2.1 replaces
+them and the paper's numbers are regenerated with the corrected caches.
 
 The two hydrogen models are needed by every stage that touches the xTB reward
 (Stages 2–5), because the reward is perception-free — hydrogens are placed by
