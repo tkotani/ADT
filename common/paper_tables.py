@@ -201,13 +201,14 @@ def main():
     ring = [s for s in RING if s in rows]
     A = {k: float(np.mean([rows[s][k] for s in ring])) for k in ("hp", "fu", "xt", "smi", "gen", "novel", "rmsd", "de")}
     A["size"] = [float(v) for v in np.mean([rows[s]["size"] for s in ring], axis=0)]
+    A["N"] = float(np.mean([rows[s]["N"] for s in ring]))
     name = lambda s: "Btriple (uncond.)" if s == UNCOND else s.replace("_real", "")
 
     print("\n=== Table 2 (tab:drugs30): N_Hprerx N_XTP N_XTP^smiles N^gen(rate) N^Novel N_fullrx size RMSD dE ===")
     def t2(nm, r, bold=False):
         m_, s_, md, mn, mx = r["size"]
         return "%-18s %6.0f %6.0f %6.0f %6.0f (%.1f%%) %6.0f %6.0f  %.1f/%.1f/%.0f/%.0f/%.0f  %.2f  %.1f" % (
-            nm, r["hp"], r["xt"], r["smi"], r["gen"], (100 * r["gen"] / r["N"]) if "N" in r else r["gen"] / 100, r["novel"], r["fu"],
+            nm, r["hp"], r["xt"], r["smi"], r["gen"], 100 * r["gen"] / r["N"], r["novel"], r["fu"],
             m_, s_, md, mn, mx, r["rmsd"], r["de"])
     for s in ring:
         print(t2(name(s), rows[s]))
@@ -248,7 +249,7 @@ def main():
     NT = sum(rows[s]["gen"] for s in allS)
     allspa = [x["strain_pa"] for s in allS for x in per[s] if x["strain_pa"] is not None]
     ringspa = [x["strain_pa"] for s in ring for x in per[s] if x["strain_pa"] is not None]
-    body = dict(xtp_avg=A["xt"], xtp_rate=A["xt"] / 100, gen_rate_avg=A["gen"] / 100,
+    body = dict(xtp_avg=A["xt"], xtp_rate=100 * A["xt"] / A["N"], gen_rate_avg=100 * A["gen"] / A["N"],
                 gen_rate_uncond=(100 * rows[UNCOND]["gen"] / rows[UNCOND]["N"]) if UNCOND in rows else None,
                 rmsd_avg=A["rmsd"], de_avg=A["de"], smi_over_xtp=100 * A["smi"] / A["xt"],
                 novelty_min_ring=min(100 * rows[s]["novel"] / rows[s]["gen"] for s in ring),
