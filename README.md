@@ -29,9 +29,9 @@ relaxed coordinates by a distance rule — no SMILES, no valence table.
 ## Quick start (from the released checkpoints)
 
 ```bash
-git clone git@github.com:tkotani/ADT.git && cd ADT
+git clone https://github.com/tkotani/ADT.git && cd ADT
 
-pip install zenodo_get
+pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy zenodo_get
 mkdir -p ~/assets && cd ~/assets && zenodo_get 10.5281/zenodo.20635985
 mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames
 cd -
@@ -43,8 +43,14 @@ export MLHADD_CKPT=~/assets/mlhadd_v6prod_best.pt   # MLHplacer   (hydrogen dire
 # generate 10,000 molecules per scaffold, then tabulate the funnel
 GEN_CKPT=~/assets/rlvr_E240direct.pt FRAME_DIR=~/assets/frames OUT=/out/bank N=10000 \
   bash Drugs/vtakao202606231610/run_gen_records.sh
-python3 common/funnel_stats.py /out/bank
+python3 common/funnel_stats.py /out/bank                       # quick xTB-side funnel
+
+# every generation number of the paper (Tables 2-4, Fig. 6); the GEOM-Drugs SMILES
+# for novelty come from the public GEOM release (see REPRODUCE.md, Stage 4)
+python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi --json tables.json
 ```
+
+A GFN2-xTB binary (6.7.1) is required; generation needs a CUDA GPU.
 
 Full walkthrough — pretraining, data-free RLVR, generation, evaluation, Fig. 7 —
 is in [`REPRODUCE.md`](REPRODUCE.md).
@@ -56,7 +62,7 @@ is in [`REPRODUCE.md`](REPRODUCE.md).
 | [`REPRODUCE.md`](REPRODUCE.md) | **Start here.** Stage-by-stage reproduction of the paper. |
 | [`run_rlvr_baseline.sh`](run_rlvr_baseline.sh) | The data-free RLVR run (Stage 2), with the paper's recipe. |
 | [`Drugs/vtakao202606231610/`](Drugs/vtakao202606231610/) | Architecture, pretraining, RLVR, generation, IKT, Fig. 7 plot. |
-| [`common/`](common/) | Tokenizer, dataset, the perception-free xTB reward, evaluation. |
+| [`common/`](common/) | Tokenizer, dataset, the perception-free xTB reward, evaluation (`paper_tables.py`: the paper's tables). |
 | [`Hcompleter/`](Hcompleter/) | Training scripts for the two hydrogen models (MLnH, MLHplacer). |
 | [`docs/`](docs/README.md) | The interactive 3D browser — this directory **is** the GitHub Pages site. |
 | [`LICENSE`](LICENSE) · [`PATENTS.md`](PATENTS.md) · [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md) | Licensing. |
