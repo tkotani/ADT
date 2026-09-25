@@ -23,7 +23,7 @@ import torch
 bank_dir = sys.argv[1] if len(sys.argv) > 1 else "."
 DO_RV = os.environ.get("RDKIT_VALID", "1") != "0"
 if DO_RV:
-    sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
     from rdkit import Chem, RDLogger
     RDLogger.DisableLog("rdApp.*")
     from util_validation import validate_3D

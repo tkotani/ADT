@@ -414,8 +414,11 @@ def test_roundtrip(mol, positions, verbose=False):
 if __name__ == "__main__":
     import pickle
 
+    import sys
+    if len(sys.argv) < 2:
+        sys.exit("usage: python tokenizer.py <qm9_mols_cache.pkl>   (round-trip self-test)")
     print("Loading QM9 data...")
-    with open("/home/takao/ADT/QM9/qm9_mols_cache_v3b_noh.pkl", "rb") as f:
+    with open(sys.argv[1], "rb") as f:
         data = pickle.load(f)
 
     print(f"Loaded {len(data)} molecules")

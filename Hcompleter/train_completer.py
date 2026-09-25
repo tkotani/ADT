@@ -20,7 +20,7 @@ Smoke (1 GPU, subset):
 """
 import os, sys, time, argparse, math
 os.environ.setdefault("OMP_NUM_THREADS", "1")
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 import numpy as np
 import torch
 import torch.nn as nn
@@ -224,8 +224,8 @@ def evaluate(model, loader, device):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--data", default=os.path.expanduser("~/ADT/Hcompleter/data/hcomp_train.pt"))
-    ap.add_argument("--out", default=os.path.expanduser("~/ADT/Hcompleter/ckpt"))
+    ap.add_argument("--data", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/data/hcomp_train.pt"))
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/ckpt"))
     ap.add_argument("--epochs", type=int, default=30)
     ap.add_argument("--batch", type=int, default=256)
     ap.add_argument("--lr", type=float, default=3e-4)

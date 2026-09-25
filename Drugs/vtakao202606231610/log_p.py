@@ -4,7 +4,7 @@ Mirrors model.compute_loss slot routing but computes per-sample log_p (sum
 over generated portion). Used for REINFORCE loss and KL anchor.
 """
 import os, sys
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # version dir: train (emb_offset)
 
 import torch

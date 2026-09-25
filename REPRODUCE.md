@@ -11,12 +11,19 @@ transformer, pretrained on GEOM-Drugs then refined against a GFN2-xTB reward
 
 ## Setup
 
-Python (torch 2.x, rdkit, numpy, networkx, torch_geometric) and a GFN2-xTB binary.
+Python 3.12 with torch 2.x (CUDA for generation), `rdkit==2025.9.*`, numpy, networkx,
+torch_geometric and healpy, plus a GFN2-xTB binary. The repository can be cloned anywhere:
+scripts locate `common/` and the model directory relative to their own path.
 
 ```bash
+pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy zenodo_get
 export XTB_BIN=~/xtb/bin/xtb
 export ADT=$PWD                                    # this repository
 ```
+
+The RDKit version matters only for the RDKit-side columns (N_XTP^smiles, N^gen, novelty,
+diversity): 2025.09 reproduces the paper's numbers exactly; RDKit 2026.03 moves them by a
+few molecules per 10,000. The xTB-side columns do not depend on it.
 
 ## Assets (Zenodo)
 
@@ -29,8 +36,9 @@ The concept DOI always resolves to the latest version:
 pip install zenodo_get
 mkdir -p ~/assets && cd ~/assets
 zenodo_get 10.5281/zenodo.20635985          # fetches all six files
-md5sum -c md5sums.txt                       # zenodo_get writes this
-tar xzf frame_caches.tar.gz -C ~/assets/frames   # -> frame_cache_*.pt
+zenodo_get -m 10.5281/zenodo.20635985       # writes md5sums.txt
+md5sum -c md5sums.txt
+mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames   # -> frame_cache_*.pt
 ```
 
 | Zenodo file | size | md5 (head) | used by |
@@ -107,8 +115,21 @@ strain statistics can be re-tabulated without regenerating anything.
 ## Stage 4 — evaluation → tables
 
 ```bash
-python3 common/funnel_stats.py /out/bank      # funnel + strain -> Table 2, Table 3
+python3 common/funnel_stats.py /out/bank      # xTB-side funnel + strain (quick check)
+
+# GEOM-Drugs reference SMILES for the novelty column (keys of summary_drugs.json in the
+# public GEOM release, https://doi.org/10.7910/DVN/JNGTDF, rdkit_folder)
+python3 common/geom_smiles.py <path>/rdkit_folder/summary_drugs.json geom_drugs.smi
+python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi   # Table 2, Table 3, Fig. 6
 ```
+
+`paper_tables.py` prints every column of Table 2 (funnel, size, RMSD, strain) and the model
+side of Table 3 (N_eff^scaf, distinct Murcko scaffolds, IntDiv_1, MW, logP, QED), the
+per-heavy-atom strain percentiles, and the Fig. 6 bond/angle-shift histograms.
+
+A regeneration of the benzene row with `rlvr_E240direct.pt` (N = 10,000, RTX 5090, 16 xTB
+workers, 55 min) gave N_XTP 9805 / N^gen 9582 (95.8%) / median ΔE 10.1 kcal/mol against the
+paper's 9808 / 9562 (95.6%) / 10.2: sampling noise, not bit identity.
 
 ## Stage 5 — Figure 7 (IKT)
 
@@ -127,8 +148,8 @@ on the first try, ADT+IKT adds the ones the corrector rescues within six xTB cal
 
 | Paper element | Stage |
 |---|---|
-| Table 2, Table 3 (funnel, strain) | Stage 3 → 4 |
-| bond / angle errors, per-scaffold stats | Stage 3 → 4 |
+| Table 2, Table 3 (funnel, diversity, properties) | Stage 3 → 4 (`paper_tables.py`) |
+| Fig. 6 bond / angle errors | Stage 3 → 4 (`paper_tables.py`) |
 | Fig. 8(a) pretraining curve | Stage 1 training log |
 | Fig. 8(b) RLVR curve | Stage 2 training log |
 | Fig. 7 (IKT) | Stage 5 |

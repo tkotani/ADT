@@ -39,11 +39,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 from torch.utils.data import Dataset, DataLoader
 
-# === version vtakao202606231610 (emb_offset): import ONLY from this dir + ~/ADT/common ===
-# This dir is inserted LAST (front-most) so its emb_offset adt_model.py SHADOWS ~/ADT/common's legacy
+# === version vtakao202606231610 (emb_offset): import ONLY from this dir + <repo>/common ===
+# This dir is inserted LAST (front-most) so its emb_offset adt_model.py SHADOWS <repo>/common's legacy
 # absolute model. tokenizer.py + load_drugs.py are COPIED into this dir (self-contained); the
 # only shared deps are common/adt_tokenizer (token constants) + common/relative_pointer (offset conv).
-# NB: this dir is ~/ADT/Drugs/vtakao202606231610 so common is "../../common" (2 levels), NOT 3.
+# NB: this dir is <repo>/Drugs/vtakao202606231610 so common is "../../common" (2 levels), NOT 3.
 import os as _os_v, sys as _sys_v
 _HERE = _os_v.path.dirname(_os_v.path.abspath(__file__))
 _COMMON = _os_v.path.abspath(_os_v.path.join(_HERE, "../../common"))

@@ -12,7 +12,7 @@ weights -- so it is numerically identical to the full forward (verified in __mai
 to ~1e-4). Use kv_init(prompt) then kv_step(token) per generated token.
 """
 import os, sys, math
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 sys.path.insert(0, ".")
 
 import torch

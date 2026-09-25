@@ -22,7 +22,7 @@ The differentiable size/composition losses come from log_p.compute_log_p_batch
 at-risk-hazard survival distribution P_hat_theta (log_p.censored_size_kl).
 """
 import os, sys, time, argparse, glob, re, gc
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 # v2 emb_offset: THIS dir FIRST so adt_model/rollout_batched/log_p/kv_cache/relative_pointer/klrl_control
 # resolve to the OFFSET-aware copies here (reward_xtb/frame/util now come from common; rl_v1+freeorder removed).
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

@@ -12,8 +12,8 @@ Drop-in for reward_xtb.xvr_reward_batch when XVR_PFREE=1:
 Completer runs in the MAIN thread (GPU); xTB in the thread pool (subprocess).
 """
 import os, sys, math, subprocess, shutil, re
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
-sys.path.insert(0, os.path.expanduser("~/ADT/Hcompleter"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter"))
 from concurrent.futures import ThreadPoolExecutor
 from collections import deque
 import numpy as np

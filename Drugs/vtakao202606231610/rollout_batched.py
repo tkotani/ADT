@@ -14,7 +14,7 @@ fewer launches. (KV-cache, an orthogonal O(L^2)->O(L) win, is a separate change.
 Verify equivalence with verify_rollout_batched.py before switching RL over.
 """
 import os, sys
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # version dir: train (emb_offset), kv_cache
 
 import numpy as np

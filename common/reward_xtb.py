@@ -10,7 +10,7 @@ Batch evaluation parallelizes xTB calls over a thread pool (xtb is a
 subprocess, so threads release the GIL during subprocess.run).
 """
 import os, sys
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 
 from concurrent.futures import ThreadPoolExecutor
 from rdkit import Chem, RDLogger

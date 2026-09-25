@@ -15,8 +15,8 @@ so this is a set of rates, not a nested funnel.
 import os, sys
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("AROMATIZE_RINGS", "1")
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
-sys.path.insert(0, os.path.expanduser("~/ADT/Drugs/vtakao202606231610"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/vtakao202606231610"))
 import numpy as np
 import torch
 import train as T
@@ -28,7 +28,7 @@ RDLogger.DisableLog("rdApp.*")
 import reward_pfree                                    # loads completer (COMPLETER_CKPT)
 
 dev = "cuda" if torch.cuda.is_available() else "cpu"
-GEN = os.environ.get("GEN_CKPT", os.path.expanduser("~/ADT/Drugs/vtakao202606231610/ckpts/scratch_epoch240.pt"))
+GEN = os.environ.get("GEN_CKPT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/vtakao202606231610/ckpts/scratch_epoch240.pt"))
 import hashlib
 GEN_HASH = "sha256:" + hashlib.sha256(open(GEN, "rb").read()).hexdigest()   # ckpt 内容の hash (path非依存・cp不変)
 ck = torch.load(GEN, map_location="cpu", weights_only=False)
@@ -36,7 +36,7 @@ model = T.build_model(ck.get("config", ck.get("cfg")))
 model.load_state_dict(ck["model"]); model.to(dev).eval()
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 1000
 SCAF = sys.argv[2] if len(sys.argv) > 2 else "bootstrap3"
-FRAME_DIR = os.environ.get("FRAME_DIR", os.path.expanduser("~/ADT/Drugs/data/geom/scaffolds"))  # portable: set FRAME_DIR on other hosts
+FRAME_DIR = os.environ.get("FRAME_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/data/geom/scaffolds"))  # portable: set FRAME_DIR on other hosts
 fs = FrameSampler.load(os.path.join(FRAME_DIR, "frame_cache_%s.pt" % SCAF))
 XTB = os.environ.get("XTB_BIN", os.path.expanduser("~/xtb/bin/xtb"))  # portable: set XTB_BIN on other hosts
 WORKERS = int(os.environ.get("XTB_WORKERS", "24"))

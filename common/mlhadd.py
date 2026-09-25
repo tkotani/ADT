@@ -9,8 +9,8 @@ SetNoImplicit so downstream AddHs is a no-op), or None on tokenization failure.
 Env: MLHADD_CKPT (default ~/ADT/Hcompleter/ckpt_hpos/best.pt).
 """
 import os, sys
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
-sys.path.insert(0, os.path.expanduser("~/ADT/Hcompleter"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter"))
 import numpy as np
 import torch
 from rdkit import Chem
@@ -29,7 +29,7 @@ _model = None
 
 def load(ckpt=None):
     global _model
-    ckpt = ckpt or os.environ.get("MLHADD_CKPT", os.path.expanduser("~/ADT/Hcompleter/ckpt_hpos/best.pt"))
+    ckpt = ckpt or os.environ.get("MLHADD_CKPT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/ckpt_hpos/best.pt"))
     ck = torch.load(ckpt, weights_only=False, map_location=_dev)
     cfg = ck["cfg"]
     _model = HPosModel(cfg["d_model"], cfg["n_layers"]).to(_dev).eval()

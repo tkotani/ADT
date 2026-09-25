@@ -20,7 +20,7 @@ Smoke (1 GPU, subset, + frame-consistency check):
 """
 import os, sys, time, argparse, itertools, contextlib
 os.environ.setdefault("OMP_NUM_THREADS", "1")
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
 import numpy as np
 import torch
 import torch.nn as nn
@@ -264,9 +264,9 @@ def frame_consistency_check(ds, ntest=200):
 # ---------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--hpos_data", default=os.path.expanduser("~/ADT/Hcompleter/data/hcomp_hpos.pt"))
-    ap.add_argument("--completer", default=os.path.expanduser("~/ADT/Hcompleter/ckpt_rfo_big/best.pt"))
-    ap.add_argument("--out", default=os.path.expanduser("~/ADT/Hcompleter/ckpt_hpos"))
+    ap.add_argument("--hpos_data", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/data/hcomp_hpos.pt"))
+    ap.add_argument("--completer", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/ckpt_rfo_big/best.pt"))
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Hcompleter/ckpt_hpos"))
     ap.add_argument("--epochs", type=int, default=40)
     ap.add_argument("--batch", type=int, default=128)
     ap.add_argument("--lr", type=float, default=5e-4)

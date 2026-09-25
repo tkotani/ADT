@@ -19,7 +19,7 @@ the thing we care about: XTP at 40+ atoms.
 import os, sys, json, time, argparse
 from collections import deque
 
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "common"))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 os.environ.setdefault("AROMATIZE_RINGS", "1")
 

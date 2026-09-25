@@ -4,8 +4,8 @@ rate, XVR, strain_pa. Run on kt1 with XVR_ESTRAIN_TAU/CLASHVR/COMPLETER_CKPT set
 import os, sys
 os.environ.setdefault("OMP_NUM_THREADS", "1")
 os.environ.setdefault("AROMATIZE_RINGS", "1")
-sys.path.insert(0, os.path.expanduser("~/ADT/common"))
-sys.path.insert(0, os.path.expanduser("~/ADT/Drugs/vtakao202606231610"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "common"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/vtakao202606231610"))
 import torch
 import numpy as np
 import train as T
@@ -14,12 +14,12 @@ import reward_pfree
 from collections import Counter
 
 dev = "cuda" if torch.cuda.is_available() else "cpu"
-E240 = os.environ.get("GEN_CKPT", os.path.expanduser("~/ADT/Drugs/vtakao202606231610/ckpts/scratch_epoch240.pt"))
+E240 = os.environ.get("GEN_CKPT", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/vtakao202606231610/ckpts/scratch_epoch240.pt"))
 print("gen ckpt = %s" % E240)
 ck = torch.load(E240, map_location="cpu", weights_only=False)
 model = T.build_model(ck.get("config", ck.get("cfg")))
 model.load_state_dict(ck["model"]); model.to(dev).eval()
-fs = FrameSampler.load(os.path.expanduser("~/ADT/Drugs/data/geom/scaffolds/frame_cache_bootstrap3.pt"))
+fs = FrameSampler.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Drugs/data/geom/scaffolds/frame_cache_bootstrap3.pt"))
 XTB = os.path.expanduser("~/xtb/bin/xtb")
 N = int(sys.argv[1]) if len(sys.argv) > 1 else 30
 
