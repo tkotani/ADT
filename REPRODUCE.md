@@ -136,14 +136,15 @@ paper's 9808 / 9562 (95.6%) / 10.2: sampling noise, not bit identity.
 ## Stage 5 — Figure 7 (IKT)
 
 ```bash
-# same XTP environment as Stage 3 (see run_gen_records.sh)
-cd Drugs/vtakao202606231610
-python3 ikt_eval_big.py \
-  --adt ~/assets/rlvr_E240direct.pt --ikt ~/assets/ikt_torsion_bend.pt \
-  --frame_cache ~/assets/frames/frame_cache_bootstrap3.pt \
-  --n_mol 1800 --min_na 21 --out persize_ikt.json
-python3 plot_ikt_xtp_size.py --recs persize_ikt.json --out ikt_xtp_size.pdf
+GEN_CKPT=~/assets/rlvr_E240direct.pt IKT_CKPT=~/assets/ikt_torsion_bend.pt \
+FRAME_DIR=~/assets/frames OUT=/out/ikt \
+  bash Drugs/vtakao202606231610/run_ikt_eval.sh    # -> persize_ikt.json, ikt_xtp_size.pdf
 ```
+
+The defaults are the conditions of the paper's run: 1,500 fresh molecules of at least 20 heavy
+atoms from the unconditional (bootstrap3) prefixes, generation biased toward long molecules
+(end_bias 2.4), and for each molecule xTB rejects, 48 IKT rotamer proposals of which the top 6 are
+verified with xTB. The IKT corrector is frozen; nothing is trained.
 
 Both curves come from the same molecules: ADT alone is the fraction that is XTP
 on the first try, ADT+IKT adds the ones the corrector rescues within six xTB calls.

@@ -28,8 +28,8 @@ from adt_model import build_model
 from adt_dataset import FrameSampler
 from rollout_batched import rollout_batch_kv
 from reward_xtb import xvr_reward_batch
-from ikt_model import IKTModel
-from torsion_ikt import TorsionIKT, forward_kinematics, selfmis
+from ikt_common import build_inputs, atom_token_index, canonical_coords
+from ikt_corrector import TorsionIKT, forward_kinematics, selfmis
 from train_torsion_online import tree_from_atoms, geom_score
 
 
@@ -46,7 +46,7 @@ def band(na):
     return "76+   *"
 
 
-BANDS = ("<=34", "35-39", "40-44", "45-49", "50+")
+BANDS = ("<=34", "35-39", "40-44", "45-49", "50-55", "56-65 *", "66-75 *", "76+   *")
 
 
 def wilson(k, n, z=1.96):
@@ -137,7 +137,7 @@ def main():
                     end_bias=args.end_bias, end_bias_arr=None, size_ceiling=nmax):
                 if na < args.min_na or na >= nmax:
                     continue                       # ceiling => truncated mid-molecule, not a molecule
-                ix = IKTModel.atom_token_index(tokens)
+                ix = atom_token_index(tokens)
                 if len(ix) < na:
                     continue
                 parent, child_of, b0 = tree_from_atoms(atoms, bonds, na)

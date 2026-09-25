@@ -30,8 +30,8 @@ from adt_model import build_model, ADD_INIT, ADD_CHAIN, ADD_ANGLE, ADD, END
 from adt_dataset import FrameSampler
 from rollout_batched import rollout_batch_kv
 from reward_xtb import xvr_reward_batch
-from ikt_model import IKTModel
-from torsion_ikt import TorsionIKT, forward_kinematics, selfmis, geometry_loss
+from ikt_common import build_inputs, atom_token_index, canonical_coords
+from ikt_corrector import TorsionIKT, forward_kinematics, selfmis, geometry_loss
 
 ATOM_ACTS = (ADD_INIT, ADD_CHAIN, ADD_ANGLE, ADD)
 
@@ -209,7 +209,7 @@ def main():
                     continue
                 if args.skip_truncated and na >= args.size_nmax:
                     continue                       # hit the ceiling => truncated mid-generation, not a molecule
-                ix = IKTModel.atom_token_index(tokens)
+                ix = atom_token_index(tokens)
                 if len(ix) < na:
                     continue
                 parent, child_of, b0 = tree_from_atoms(atoms, bonds, na)
@@ -432,7 +432,7 @@ def main():
         met.write(json.dumps(rec) + "\n")
         if step % 200 == 0 and step:
             torch.save({"ikt": ikt.state_dict(), "config": cfg, "step": step, "args": vars(args)},
-                       os.path.join(args.out_dir, "torsion_ikt.pt"))
+                       os.path.join(args.out_dir, "ikt_corrector.pt"))
 
 
 if __name__ == "__main__":
