@@ -137,7 +137,10 @@ COLLECT = os.environ.get("BANK_RELAX", "0") == "1"            # richer xTB stats
 if SAVE_BANK:
     os.environ["BANK_STRUCT"] = "1"                           # make reward_pfree freeze the H-added + relaxed structures
 _t_xtb0 = _time.time()
-res = reward_pfree.pfree_reward_batch(mols, XTB, "/tmp/measure_pfree_work", max_workers=WORKERS, collect_relax=COLLECT)
+# one xTB work directory per process: file names are only the molecule index, so two concurrent runs
+# on one host must not share a directory
+XTB_WORKDIR = os.environ.get("XTB_WORKDIR") or "/tmp/measure_pfree_work_%d" % os.getpid()
+res = reward_pfree.pfree_reward_batch(mols, XTB, XTB_WORKDIR, max_workers=WORKERS, collect_relax=COLLECT)
 _T_XTB = _time.time() - _t_xtb0
 n_xvr = sum(1 for r in res if r.get("same_topo"))
 print("[xtb] %d mols pipeline (H-prerelax+full relax+XVR, workers=%d) in %.1fs = %.2f mol/s | [total gen+xtb] %.1fs"
