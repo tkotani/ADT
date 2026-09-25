@@ -132,12 +132,15 @@ def neff(mols):
 
 
 def intdiv(mols):
+    """IntDiv_1 = 1 - mean pairwise Tanimoto, and the median pairwise Tanimoto, on a 1500-molecule sample."""
     s = random.Random(0).sample(mols, min(1500, len(mols)))
     fps = [AllChem.GetMorganFingerprintAsBitVect(m, 2, 2048) for m in s]
-    t = n = 0
+    allsims = []
     for i in range(len(fps)):
-        sims = DataStructs.BulkTanimotoSimilarity(fps[i], fps[i + 1:]); t += sum(sims); n += len(sims)
-    return 1 - t / n if n else 0.0
+        allsims.extend(DataStructs.BulkTanimotoSimilarity(fps[i], fps[i + 1:]))
+    if not allsims:
+        return 0.0, 0.0
+    return 1 - float(np.mean(allsims)), float(np.median(allsims))
 
 
 def hist(centres, edges, v):
@@ -182,6 +185,7 @@ def main():
         umols = [m for m in (Chem.MolFromSmiles(k) for k in uniq) if m is not None]
         sz = np.array([r["n_heavy"] for r in acc])
         ne, nmk = neff(umols)
+        idv, tmed = intdiv(umols)
         props = lambda f: [f(m) for m in umols]
         MW, LP, QD = props(Descriptors.MolWt), props(Crippen.MolLogP), props(QED.qed)
         rows[s] = dict(
@@ -191,7 +195,7 @@ def main():
             size=[float(sz.mean()), float(sz.std()), float(np.median(sz)), int(sz.min()), int(sz.max())],
             rmsd=float(np.median([x["rmsd"] for x in res])),
             de=float(np.median([r["strain_dE"] for r in acc if r.get("strain_dE") is not None])),
-            neff=ne, murcko=nmk, idiv=intdiv(umols),
+            neff=ne, murcko=nmk, idiv=idv, tanimoto_median=tmed,
             MW=[float(np.mean(MW)), float(np.std(MW))], logP=[float(np.mean(LP)), float(np.std(LP))],
             QED=[float(np.mean(QD)), float(np.std(QD))],
             chg_S=sum(1 for x in uniq.values() if x["chg"] and x["s_inv"]),
@@ -255,7 +259,10 @@ def main():
                 novelty_min_ring=min(100 * rows[s]["novel"] / rows[s]["gen"] for s in ring),
                 strain_pa_median_all=float(np.median(allspa)), strain_pa_median_ring=float(np.median(ringspa)),
                 chg_S=100 * sum(rows[s]["chg_S"] for s in allS) / NT, chg_nonS=100 * sum(rows[s]["chg_nonS"] for s in allS) / NT,
-                idiv_range=[min(rows[s]["idiv"] for s in ring), max(rows[s]["idiv"] for s in ring)])
+                idiv_range=[min(rows[s]["idiv"] for s in ring), max(rows[s]["idiv"] for s in ring)],
+                uniqueness=[min(100 * rows[s]["gen"] / rows[s]["smi"] for s in ring), max(100 * rows[s]["gen"] / rows[s]["smi"] for s in ring)],
+                murcko_uniqueness=[min(100 * rows[s]["murcko"] / rows[s]["gen"] for s in ring), max(100 * rows[s]["murcko"] / rows[s]["gen"] for s in ring)],
+                tanimoto_median=[min(rows[s]["tanimoto_median"] for s in ring), max(rows[s]["tanimoto_median"] for s in ring)])
     out["body"] = body
     print("\n=== body text ===")
     print("N_XTP average %.0f (%.1f%%);  N^gen/N average %.1f%%;  Btriple %.1f%%" % (body["xtp_avg"], body["xtp_rate"], body["gen_rate_avg"], body["gen_rate_uncond"] or float("nan")))
@@ -263,6 +270,8 @@ def main():
     print("strain/heavy median: all banks %.3f kcal/mol (%.0f meV), ring scaffolds %.3f" % (body["strain_pa_median_all"], body["strain_pa_median_all"] * KCAL_TO_MEV, body["strain_pa_median_ring"]))
     print("charge separation over %d N^gen molecules: S-mediated %.1f%%, non-S %.1f%%" % (NT, body["chg_S"], body["chg_nonS"]))
     print("IntDiv range over ring scaffolds %.3f-%.3f" % tuple(body["idiv_range"]))
+    print("uniqueness N^gen/N_XTP^smiles %.1f-%.1f%%;  Murcko uniqueness #Murcko/N^gen %.0f-%.0f%%;  median pair Tanimoto %.2f-%.2f"
+          % (*body["uniqueness"], *body["murcko_uniqueness"], *body["tanimoto_median"]))
     if args.json:
         json.dump(out, open(args.json, "w"), indent=1)
         print("wrote", args.json)
