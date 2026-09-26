@@ -35,7 +35,7 @@ The concept DOI always resolves to the latest version:
 ```bash
 pip install zenodo_get
 mkdir -p ~/assets && cd ~/assets
-zenodo_get 10.5281/zenodo.20635985          # fetches all six files
+zenodo_get 10.5281/zenodo.20635985          # fetches all seven files
 zenodo_get -m 10.5281/zenodo.20635985       # writes md5sums.txt
 md5sum -c md5sums.txt
 mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames   # -> frame_cache_*.pt
@@ -49,6 +49,7 @@ mkdir -p ~/assets/frames && tar xzf frame_caches.tar.gz -C ~/assets/frames   # -
 | `mlhadd_v6prod_best.pt` | 107 MB | `765517732e31` | MLHplacer: hydrogen directions |
 | `ikt_torsion_bend.pt` | 349 MB | `b86cbc74e0ef` | IKT corrector (§4.5, Fig. 7) |
 | `frame_caches.tar.gz` | 0.3 MB | `df9889c60035` | `frame_cache_bootstrap3.pt` (Stage 2) + one cache per scaffold (Stage 3) |
+| `geom_drugs_smiles.smi` | 13 MB | `8b95747fd8ea` | the GEOM-Drugs SMILES list used in the paper: novelty and every GEOM-side reference value (Stage 4) |
 
 The checkpoints have the optimizer state stripped: they are for inference and for
 starting the next stage, not for resuming the original run.
@@ -123,13 +124,24 @@ strain statistics can be re-tabulated without regenerating anything.
 ```bash
 python3 common/funnel_stats.py /out/bank      # xTB-side funnel + strain (quick check)
 
-# GEOM-Drugs reference SMILES for the novelty column (keys of summary_drugs.json in the
-# public GEOM release, https://doi.org/10.7910/DVN/JNGTDF, rdkit_folder)
-python3 common/geom_smiles.py <path>/rdkit_folder/summary_drugs.json geom_drugs.smi
-python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi   # Table 2, Table 3, Fig. 6
-# GEOM side of Table 3: GEOM sub-sampled to each row's N^gen (from paper_tables.py)
-python3 common/geom_matched_diversity.py geom_drugs.smi benzene=<N^gen> pyridine=<N^gen> ...
+GEOM=~/assets/geom_drugs_smiles.smi           # the GEOM-Drugs list used in the paper (Zenodo)
+python3 common/paper_tables.py /out/bank --geom_smi $GEOM --json tables.json   # Tables 2-4, Fig. 6, text
+# GEOM side of Table 3: GEOM sub-sampled to each row's N^gen (N^gen from paper_tables.py)
+python3 common/geom_matched_diversity.py $GEOM benzene=<N^gen> pyridine=<N^gen> ...
+# GEOM reference values: Table 3 GEOM IntDiv and caption (MW, logP, QED), Table 4 GEOM column
+python3 common/geom_reference.py props  --smi $GEOM
+python3 common/geom_reference.py intdiv --smi $GEOM
+# charge-separation control on GEOM's own GFN2-xTB conformers (needs the GEOM rdkit_folder release)
+python3 common/geom_reference.py extract --rdkit_folder <path>/rdkit_folder --n 5000 --seed 0 \
+        --allow_charged --out geom_confs.pkl
+python3 common/geom_reference.py charges --extracted geom_confs.pkl
 ```
+
+`geom_drugs_smiles.smi` lists one SMILES per molecule pickle of the GEOM `rdkit_folder` release
+(<https://doi.org/10.7910/DVN/JNGTDF>, CC0 1.0); 304,335 of its 304,339 lines parse (the others were
+truncated by the file-name length limit). The GEOM sub-samples of Table 3 depend on this exact list and
+its order, so use it to reproduce the paper's GEOM-side numbers. `geom_smiles.py` builds an equivalent
+list from `summary_drugs.json`; it gives the same novelty but different GEOM sub-samples.
 
 `paper_tables.py` prints every generation number of the paper with one set of definitions
 (documented at the top of the script): Table 2, the model side of Table 3, Table 4 (unconditional
@@ -137,10 +149,6 @@ generation), the Fig. 6 histograms, the charge-separation shares and the aggrega
 text; `--json` writes them all to a file. N_XTP^smiles counts molecules RDKit reads back as the
 declared molecule (same heavy-atom bonds), N^gen deduplicates non-isomeric SMILES, and novelty
 compares normalized SMILES (largest fragment, neutralized, non-isomeric) on both sides.
-
-A regeneration of the benzene row with `rlvr_E240direct.pt` (N = 10,000, RTX 5090, 16 xTB
-workers, 55 min) gave N_XTP 9805 / N^gen 9582 (95.8%) / median ΔE 10.1 kcal/mol against the
-paper's 9808 / 9562 (95.6%) / 10.2: sampling noise, not bit identity.
 
 ## Stage 5 — Figure 7 (IKT)
 
@@ -164,6 +172,7 @@ on the first try, ADT+IKT adds the ones the corrector rescues within six xTB cal
 |---|---|
 | Table 2, Table 3 (funnel, diversity, properties) | Stage 3 → 4 (`paper_tables.py`) |
 | Fig. 6 bond / angle errors | Stage 3 → 4 (`paper_tables.py`) |
+| GEOM-Drugs reference values (Table 3 GEOM side and caption, Table 4 GEOM column, charge-separation control) | Stage 4 (`geom_matched_diversity.py`, `geom_reference.py`) |
 | Fig. 8(a) pretraining curve | Stage 1 training log |
 | Fig. 8(b) RLVR curve | Stage 2 training log |
 | Fig. 7 (IKT) | Stage 5 |

@@ -45,9 +45,9 @@ GEN_CKPT=~/assets/rlvr_E240direct.pt FRAME_DIR=~/assets/frames OUT=/out/bank N=1
   bash Drugs/vtakao202606231610/run_gen_records.sh
 python3 common/funnel_stats.py /out/bank                       # quick xTB-side funnel
 
-# every generation number of the paper (Tables 2-4, Fig. 6); the GEOM-Drugs SMILES
-# for novelty come from the public GEOM release (see REPRODUCE.md, Stage 4)
-python3 common/paper_tables.py /out/bank --geom_smi geom_drugs.smi --json tables.json
+# every generation number of the paper (Tables 2-4, Fig. 6, text), with the GEOM-Drugs
+# SMILES list used in the paper (on Zenodo)
+python3 common/paper_tables.py /out/bank --geom_smi ~/assets/geom_drugs_smiles.smi --json tables.json
 ```
 
 A GFN2-xTB binary (6.7.1) is required; generation needs a CUDA GPU.
