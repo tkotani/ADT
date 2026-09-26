@@ -12,7 +12,8 @@ transformer, pretrained on GEOM-Drugs then refined against a GFN2-xTB reward
 ## Setup
 
 Python 3.12 with torch 2.x (CUDA for generation), `rdkit==2025.9.*`, numpy, networkx,
-torch_geometric, healpy and matplotlib (Fig. 7), plus a GFN2-xTB binary (tested with xtb 6.7.1). The repository can be cloned anywhere:
+torch_geometric, healpy and matplotlib (Fig. 7), plus a GFN2-xTB binary (tested with xtb 6.7.1,
+https://github.com/grimme-lab/xtb/releases/tag/v6.7.1). The repository can be cloned anywhere:
 scripts locate `common/` and the model directory relative to their own path.
 
 ```bash
