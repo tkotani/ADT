@@ -88,7 +88,7 @@ def per_record(r):
         return None
     out = {"na": int(r["n_heavy"]), "strain_pa": r.get("strain_pa"), "strain_dE": r.get("strain_dE"),
            "rmsd": kabsch(Hi, Hr), "elems": [ELEM.get(int(z), "other") for z in he],
-           "smi": None, "nsm": None, "chg": False, "s_inv": False}
+           "smi": None, "nsm": None, "chg": False, "s_inv": False, "pat": None}
     bonds = [(int(a), int(b)) for a, b in (r.get("bonds0") or [])]
     dr, dth, adj = [], [], {}
     for i, j in bonds:
@@ -119,7 +119,8 @@ def per_record(r):
                 m = Chem.RemoveAllHs(mol)
                 chg = [a for a in m.GetAtoms() if a.GetFormalCharge() != 0]
                 out.update(smi=Chem.MolToSmiles(m, isomericSmiles=False), nsm=norm_smiles(m),
-                           chg=bool(chg), s_inv=any(a.GetSymbol() == "S" for a in chg))
+                           chg=bool(chg), s_inv=any(a.GetSymbol() == "S" for a in chg),
+                           pat="/".join(sorted("%s%+d" % (a.GetSymbol(), a.GetFormalCharge()) for a in chg)) or None)
     except Exception:
         pass
     return out
@@ -199,7 +200,9 @@ def main():
             MW=[float(np.mean(MW)), float(np.std(MW))], logP=[float(np.mean(LP)), float(np.std(LP))],
             QED=[float(np.mean(QD)), float(np.std(QD))],
             chg_S=sum(1 for x in uniq.values() if x["chg"] and x["s_inv"]),
-            chg_nonS=sum(1 for x in uniq.values() if x["chg"] and not x["s_inv"]))
+            chg_nonS=sum(1 for x in uniq.values() if x["chg"] and not x["s_inv"]),
+            pat_S=dict(Counter(x["pat"] for x in uniq.values() if x["chg"] and x["s_inv"])),
+            pat_nonS=dict(Counter(x["pat"] for x in uniq.values() if x["chg"] and not x["s_inv"])))
         print("done", s, flush=True)
 
     ring = [s for s in RING if s in rows]
@@ -270,6 +273,11 @@ def main():
     print("strain/heavy median: all banks %.3f kcal/mol (%.0f meV), ring scaffolds %.3f" % (body["strain_pa_median_all"], body["strain_pa_median_all"] * KCAL_TO_MEV, body["strain_pa_median_ring"]))
     print("charge separation over %d N^gen molecules: S-mediated %.1f%%, non-S %.1f%%" % (NT, body["chg_S"], body["chg_nonS"]))
     print("IntDiv range over ring scaffolds %.3f-%.3f" % tuple(body["idiv_range"]))
+    for key, label in (("pat_S", "S-mediated"), ("pat_nonS", "non-S")):
+        tot = Counter()
+        for s_ in allS:
+            tot.update(rows[s_][key])
+        print("%s charge patterns (N^gen molecules, all banks): %s" % (label, ", ".join("%s %d" % kv for kv in tot.most_common(8))))
     print("uniqueness N^gen/N_XTP^smiles %.1f-%.1f%%;  Murcko uniqueness #Murcko/N^gen %.0f-%.0f%%;  median pair Tanimoto %.2f-%.2f"
           % (*body["uniqueness"], *body["murcko_uniqueness"], *body["tanimoto_median"]))
     if args.json:
