@@ -1,8 +1,8 @@
 # ADT — Atomic Design Transformer
 
 Code and reproduction package for the paper
-**"Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation via
-xTB-Reward Reinforcement Learning"** (Takao Kotani).
+**"Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation with
+xTB-Verified Reinforcement Learning"** (Takao Kotani).
 
 ADT is a fully-discrete autoregressive transformer that builds a 3D molecule
 **one atom at a time**. SE(3) invariance comes entirely from the tokenization —
@@ -100,12 +100,12 @@ The bundled `docs/3Dmol-min.js` is 3Dmol.js under BSD-3-Clause, a separate
 license ([`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
 
 **Citation.** If you use this work, please cite the paper *"Atomic Design
-Transformer: Scaffold-Conditioned 3D Molecule Generation via xTB-Reward
+Transformer: Scaffold-Conditioned 3D Molecule Generation with xTB-Verified
 Reinforcement Learning"* (T. Kotani, arXiv:2607.15918) and this repository:
 
 ```bibtex
 @article{kotani2026adt,
-  title         = {Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation via xTB-Reward Reinforcement Learning},
+  title         = {Atomic Design Transformer: Scaffold-Conditioned 3D Molecule Generation with xTB-Verified Reinforcement Learning},
   author        = {Kotani, Takao},
   year          = {2026},
   eprint        = {2607.15918},
