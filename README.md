@@ -57,17 +57,14 @@ is in [`REPRODUCE.md`](REPRODUCE.md).
 
 ## Confirming the results with an AI coding agent
 
-The package is written so that an AI coding agent (e.g. Claude Code with Claude Opus) can confirm the
-paper's numbers on its own. On a Linux machine with a CUDA GPU, copy this prompt into the agent (the same
-prompt is printed in the paper's Reproducibility section):
+[`README_reproduce_benzene.md`](README_reproduce_benzene.md) is written for an AI coding agent (e.g. Claude
+Code). On a Linux machine with a CUDA GPU (RTX 4090 or better recommended), tell the agent:
 
-> Clone https://github.com/tkotani/ADT (release v2.1), download the Zenodo record
-> https://doi.org/10.5281/zenodo.20635985, and follow REPRODUCE.md to regenerate the RLVR benzene row of
-> Table 2 of arXiv:2607.15918 (N = 10,000 molecules with rlvr_E240direct.pt), tabulate it with
-> common/paper_tables.py, and compare the result with that row.
+> Read README_reproduce_benzene.md in https://github.com/tkotani/ADT and do what it says.
 
-One scaffold takes about an hour on one GPU with 16 CPU cores. GPU sampling is not bit-reproducible,
-so expect agreement within sampling noise (a few tenths of a percent), not identical digits.
+It regenerates the RLVR benzene row of Table 2 from the released checkpoint (about an hour on one RTX 4090)
+and compares it with the paper. GPU sampling is not bit-reproducible, so expect agreement within sampling
+noise, not identical digits.
 
 ## Repository map
 
