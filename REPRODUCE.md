@@ -18,9 +18,17 @@ scripts locate `common/` and the model directory relative to their own path.
 
 ```bash
 pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy matplotlib zenodo_get
-export XTB_BIN=~/xtb/bin/xtb
+export XTB_BIN=~/xtb/bin/xtb                       # else the code falls back to this same path
 export ADT=$PWD                                    # this repository
+export PYBIN=$(which python3)                      # the interpreter that has torch (venv: <venv>/bin/python)
+export XTB_WORKDIR=~/xtb_work                      # optional: xTB scratch (~0.8 GB per 10,000); default /tmp
 ```
+
+`PYBIN` matters because the generation scripts call `${PYBIN:-python3}`: with a virtual environment that
+you do not activate, a bare `python3` is the system interpreter and has no torch. These variables must be
+set in the same shell as the stage commands below, or repeated on their command lines.
+
+Disk: a CUDA build of torch is ~6 GB, the Zenodo assets ~1.3 GB, one 10,000-molecule bank ~25 MB.
 
 The RDKit version matters only for the RDKit-side columns (N_XTP^smiles, N^gen, novelty,
 diversity): 2025.09 reproduces the paper's numbers exactly; RDKit 2026.03 moves them by a

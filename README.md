@@ -62,8 +62,10 @@ Code). On a Linux machine with a CUDA GPU (RTX 4090 or better recommended), tell
 
 > Read README_reproduce_benzene.md in https://github.com/tkotani/ADT and do what it says.
 
-It regenerates the RLVR benzene row of Table 2 from the released checkpoint (about an hour on one RTX 4090)
-and compares it with the paper. GPU sampling is not bit-reproducible, so expect agreement within sampling
+It regenerates the RLVR benzene row of Table 2 from the released checkpoint and compares it with the paper.
+A blind run of exactly this instruction, on one RTX 4090 with 16 CPU cores, took 81 minutes end to end
+(28 min of that was the Zenodo download) and matched every count of the paper's benzene row to within 15
+out of 10,000. GPU sampling is not bit-reproducible, so expect agreement within sampling
 noise, not identical digits.
 
 ## Repository map

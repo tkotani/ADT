@@ -4,8 +4,9 @@ This file is written to be handed to an AI coding agent (e.g. Claude Code): "Rea
 in https://github.com/tkotani/ADT and do what it says." It regenerates the RLVR benzene row of Table 2 of the
 paper (arXiv:2607.15918) from the released checkpoint and compares it with the paper.
 
-Requirements: Linux, one CUDA GPU (RTX 4090 or better recommended), about 16 CPU cores, ~2 GB disk.
-Time: about one hour of generation on one RTX 4090.
+Requirements: Linux, one CUDA GPU (RTX 4090 or better recommended), about 16 CPU cores, and ~10 GB of
+free disk (a CUDA build of torch is ~6 GB, the Zenodo assets ~1.3 GB, the xTB scratch ~0.8 GB).
+Time: about 40 minutes of generation on one RTX 4090 with 16 workers, plus the Zenodo download.
 
 ## Steps
 
@@ -14,6 +15,9 @@ Time: about one hour of generation on one RTX 4090.
 2. **Python environment.** Python 3.12 with
    `pip install torch "rdkit==2025.9.*" numpy networkx torch_geometric healpy matplotlib zenodo_get`
    (a CUDA build of torch). RDKit 2025.09 matters for the RDKit-side columns.
+   If you install into a virtual environment without activating it, `export PYBIN=<venv>/bin/python`:
+   the generation script calls `${PYBIN:-python3}`, and a bare `python3` would be the system interpreter,
+   which has no torch.
 3. **GFN2-xTB 6.7.1.** Download `xtb-6.7.1-linux-x86_64.tar.xz` from
    https://github.com/grimme-lab/xtb/releases/tag/v6.7.1, unpack it, and `export XTB_BIN=<path>/bin/xtb`.
    Check with `$XTB_BIN --version`.
@@ -27,13 +31,17 @@ Time: about one hour of generation on one RTX 4090.
 5. **Generate 10,000 molecules from the benzene frames** (this is the long step; run it in the background
    and check the log):
    ```bash
-   cd $ADT && mkdir -p ~/repro
+   cd $ADT && mkdir -p ~/repro ~/repro/xtb_work
    GEN_CKPT=~/assets/rlvr_E240direct.pt COMPLETER_CKPT=~/assets/completer_best.pt \
    MLHADD_CKPT=~/assets/mlhadd_v6prod_best.pt FRAME_DIR=~/assets/frames OUT=~/repro/bank \
+   XTB_BIN=$XTB_BIN PYBIN=${PYBIN:-python3} XTB_WORKDIR=~/repro/xtb_work \
    SCAFS=benzene_real N=10000 XTB_WORKERS=16 \
      bash Drugs/vtakao202606231610/run_gen_records.sh > ~/repro/gen.log 2>&1
    ```
    Try `N=20` first as a smoke test (a few minutes) before the full run.
+   `XTB_BIN` and `PYBIN` are repeated here on purpose: this block must carry them even if you run it in a
+   different shell from steps 2 and 3. Without `XTB_BIN` the code looks for `~/xtb/bin/xtb`. `XTB_WORKDIR`
+   keeps the xTB scratch (~0.8 GB, deleted as it goes) out of `/tmp`; omit it if `/tmp` has the room.
 6. **Tabulate** with the same script that made the paper's tables:
    ```bash
    python3 common/paper_tables.py ~/repro/bank --geom_smi ~/assets/geom_drugs_smiles.smi --json ~/repro/tables.json
