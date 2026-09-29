@@ -24,4 +24,4 @@ industrial research, evaluation, education, and personal use) does not.
 If in doubt, or to arrange a commercial license, contact:
 
   Takao Kotani <takaokotani@gmail.com>
-  Office of Research Acceleration, Kyoto University
+  AI for Materials Innovation Hub, Institute for Advanced Study, Kyoto University
