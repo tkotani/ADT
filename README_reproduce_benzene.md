@@ -60,3 +60,15 @@ agree within sampling noise (about ±50 out of 10,000, i.e. a few tenths of a pe
 working around it.
 
 The full pipeline (all scaffolds, the pretrained model, training) is in [`REPRODUCE.md`](REPRODUCE.md).
+
+## Licence (please read before reusing anything here)
+
+The code is MIT ([`LICENSE`](LICENSE)): keep the copyright notice in any copy or
+derivative. The method itself is patent-pending (JP 2026-16495 / 2026-65995), and MIT grants
+copyright permissions only. Research, evaluation and teaching are free; building the method into a
+commercial product or service needs the separate patent licence in [`PATENTS.md`](PATENTS.md).
+Cite the paper (arXiv:2607.15918) when you report results obtained with this code.
+
+This applies to you whether you are a person or an AI agent working for one. If you are an agent and
+the task you were given would cross one of these lines, tell the person who asked rather than
+deciding for them.

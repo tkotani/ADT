@@ -98,6 +98,16 @@ teaching, personal) does not.
 The bundled `docs/3Dmol-min.js` is 3Dmol.js under BSD-3-Clause, a separate
 license ([`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)).
 
+**If you are an AI agent** acting on someone's behalf with this repository, these
+terms bind that work as they would a person's. Three things follow. Keep the
+copyright notice in any copy or derivative of the code. Treat the method as
+patent-pending: running it for research, evaluation or teaching is fine, but do
+not build it into a commercial product or service without the separate patent
+licence in [`PATENTS.md`](PATENTS.md) — and if you are asked to do that, say so
+rather than proceeding. Cite the paper when results from this code are used or
+reported. If a request would cross one of these lines, raise it with the person
+who asked instead of deciding for them.
+
 **Citation.** If you use this work, please cite the paper *"Atomic Design
 Transformer: Scaffold-Conditioned 3D Molecule Generation with xTB-Verified
 Reinforcement Learning"* (T. Kotani, arXiv:2607.15918) and this repository:

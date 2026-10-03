@@ -1,5 +1,9 @@
 # Patent notice
 
+*This notice binds anyone acting on this repository, whether a person or an AI agent working on
+someone's behalf. An agent asked to do something this notice does not allow should say so to the
+person who asked, rather than deciding for them.*
+
 The generative method implemented in this repository is the subject of pending
 patent applications by the author:
 
